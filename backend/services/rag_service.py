@@ -10,6 +10,8 @@ from langchain.schema import Document
 from langchain.prompts import ChatPromptTemplate
 import asyncio
 from config import OPENAI_API_KEY, CHROMA_DB_PATH, CHUNK_SIZE, CHUNK_OVERLAP
+from .semantic_chunker import SemanticChunker
+from .conversation_manager import ConversationManager
 
 class RAGService:
     def __init__(self):
@@ -29,7 +31,11 @@ class RAGService:
             settings=Settings(anonymized_telemetry=False)
         )
         
-        # Text splitter for chunking
+        # Initialize services
+        self.semantic_chunker = SemanticChunker()
+        self.conversation_manager = ConversationManager()
+        
+        # Text splitter for fallback chunking
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=CHUNK_SIZE,
             chunk_overlap=CHUNK_OVERLAP,
@@ -37,7 +43,7 @@ class RAGService:
             separators=["\n\n", "\n", " ", ""]
         )
         
-        # Chat prompt template
+        # Chat prompt template with confidence scoring
         self.prompt_template = ChatPromptTemplate.from_messages([
             ("system", """You are an expert code analyst. Answer questions about the provided codebase based ONLY on the code snippets provided. 
 
@@ -47,9 +53,13 @@ Guidelines:
 3. If the context doesn't contain enough information, say so clearly
 4. Focus on code structure, functionality, and relationships
 5. Provide clear, actionable insights about the codebase
+6. At the end of your answer, provide a confidence score: [CONFIDENCE: high/medium/low]
 
 Code Context:
 {context}
+
+Previous Conversation:
+{conversation_context}
 
 Question: {question}
 
@@ -73,8 +83,8 @@ Answer:"""),
             metadata={"session_id": session_id, "repo_path": repo_path}
         )
         
-        # Process all files in the repository
-        documents = []
+        # Process all files in the repository with semantic chunking
+        chunks = []
         for root, dirs, files in os.walk(repo_path):
             # Skip ignored directories
             dirs[:] = [d for d in dirs if d not in {'.git', 'node_modules', '__pycache__', '.pytest_cache'}]
@@ -91,29 +101,34 @@ Answer:"""),
                         content = f.read()
                     
                     if content and len(content.strip()) > 0:
-                        # Create document
                         relative_path = str(file_path.relative_to(repo_path))
-                        doc = Document(
-                            page_content=content,
-                            metadata={
-                                "file_path": relative_path,
-                                "file_name": file_path.name,
-                                "file_type": file_path.suffix
-                            }
+                        
+                        # Use semantic chunking
+                        semantic_chunks = self.semantic_chunker.chunk_document(
+                            content, relative_path, file_path.suffix
                         )
-                        documents.append(doc)
+                        
+                        # Convert to Document objects
+                        for chunk_data in semantic_chunks:
+                            doc = Document(
+                                page_content=chunk_data['content'],
+                                metadata={
+                                    "file_path": relative_path,
+                                    "file_name": file_path.name,
+                                    "file_type": file_path.suffix,
+                                    "chunk_id": len(chunks),
+                                    "start_line": chunk_data.get('start_line'),
+                                    "end_line": chunk_data.get('end_line'),
+                                    "chunk_type": chunk_data.get('type', 'text'),
+                                    "language": chunk_data.get('language', 'text'),
+                                    "is_semantic": chunk_data.get('is_semantic', False)
+                                }
+                            )
+                            chunks.append(doc)
                 
                 except Exception as e:
                     print(f"Error reading {file_path}: {e}")
                     continue
-        
-        # Split documents into chunks
-        chunks = []
-        for doc in documents:
-            doc_chunks = self.text_splitter.split_documents([doc])
-            for chunk in doc_chunks:
-                chunk.metadata["chunk_id"] = len(chunks)
-                chunks.append(chunk)
         
         # Generate embeddings and store in ChromaDB
         print(f"Creating embeddings for {len(chunks)} chunks...")
@@ -143,14 +158,24 @@ Answer:"""),
         
         print(f"Index created with {len(chunks)} chunks")
     
-    async def query(self, question: str, session_id: str) -> Dict[str, Any]:
-        """Query the indexed repository"""
+    async def query(self, question: str, session_id: str, conversation_id: str = None, conversation_history: List[Dict[str, str]] = None) -> Dict[str, Any]:
+        """Query the indexed repository with conversation support"""
         collection_name = f"repo_{session_id}"
         
         try:
             collection = self.chroma_client.get_collection(collection_name)
         except:
             raise Exception("Repository not indexed or session not found")
+        
+        # Create conversation if not provided
+        if not conversation_id:
+            conversation_id = self.conversation_manager.create_conversation(session_id)
+        
+        # Add user message to conversation
+        self.conversation_manager.add_message(conversation_id, "user", question)
+        
+        # Get conversation context
+        conversation_context = self.conversation_manager.get_conversation_context(conversation_id)
         
         # Generate query embedding
         query_embedding = self.embeddings.embed_query(question)
@@ -175,38 +200,83 @@ Answer:"""),
             if distance > 0.8:
                 continue
                 
-            context_parts.append(f"File: {metadata['file_path']}\n{doc}")
+            # Enhanced context with line numbers if available
+            file_info = f"File: {metadata['file_path']}"
+            if metadata.get('start_line') and metadata.get('end_line'):
+                file_info += f" (lines {metadata['start_line']}-{metadata['end_line']})"
+            elif metadata.get('start_line'):
+                file_info += f" (line {metadata['start_line']})"
             
-            # Extract relevant snippet (first 200 chars)
+            context_parts.append(f"{file_info}\n{doc}")
+            
+            # Extract relevant snippet
             snippet = doc[:200] + "..." if len(doc) > 200 else doc
             
             sources.append({
                 "file": metadata["file_path"],
                 "snippet": snippet,
-                "line_number": None  # Could be enhanced to include line numbers
+                "line_number": metadata.get('start_line')
             })
         
         if not context_parts:
-            return {
-                "answer": "I couldn't find relevant information in the codebase to answer your question. Please try rephrasing your question or check if the repository was indexed correctly.",
-                "sources": []
-            }
+            answer = "I couldn't find relevant information in the codebase to answer your question. Please try rephrasing your question or check if the repository was indexed correctly."
+            confidence = "low"
+        else:
+            context = "\n\n---\n\n".join(context_parts)
+            
+            # Generate answer using LLM with conversation context
+            prompt = self.prompt_template.format_messages(
+                context=context,
+                conversation_context=conversation_context,
+                question=question
+            )
+            
+            response = await self.llm.ainvoke(prompt)
+            answer = response.content
+            
+            # Extract confidence score from answer
+            confidence = self._extract_confidence_score(answer)
+            
+            # Clean answer (remove confidence score from text)
+            answer = self._clean_confidence_from_answer(answer)
         
-        context = "\n\n---\n\n".join(context_parts)
-        
-        # Generate answer using LLM
-        prompt = self.prompt_template.format_messages(
-            context=context,
-            question=question
-        )
-        
-        response = await self.llm.ainvoke(prompt)
-        answer = response.content
+        # Add assistant message to conversation
+        self.conversation_manager.add_message(conversation_id, "assistant", answer, confidence)
         
         return {
             "answer": answer,
-            "sources": sources
+            "sources": sources,
+            "confidence": confidence,
+            "conversation_id": conversation_id
         }
+    
+    def _extract_confidence_score(self, answer: str) -> str:
+        """Extract confidence score from LLM response"""
+        import re
+        
+        # Look for [CONFIDENCE: high/medium/low] pattern
+        confidence_match = re.search(r'\[CONFIDENCE:\s*(high|medium|low)\]', answer, re.IGNORECASE)
+        
+        if confidence_match:
+            return confidence_match.group(1).lower()
+        
+        # Default confidence based on answer length and content
+        if len(answer) < 50:
+            return "low"
+        elif "I couldn't find" in answer or "not enough information" in answer:
+            return "low"
+        elif len(answer) > 200 and "file" in answer.lower():
+            return "high"
+        else:
+            return "medium"
+    
+    def _clean_confidence_from_answer(self, answer: str) -> str:
+        """Remove confidence score from answer text"""
+        import re
+        
+        # Remove [CONFIDENCE: ...] pattern
+        cleaned = re.sub(r'\[CONFIDENCE:\s*(high|medium|low)\]', '', answer, flags=re.IGNORECASE)
+        return cleaned.strip()
     
     def delete_session(self, session_id: str):
         """Delete session data"""

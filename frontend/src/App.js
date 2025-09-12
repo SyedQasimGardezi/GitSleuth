@@ -11,6 +11,9 @@ function App() {
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState('');
   const [sources, setSources] = useState([]);
+  const [confidence, setConfidence] = useState('');
+  const [conversationId, setConversationId] = useState(null);
+  const [conversationHistory, setConversationHistory] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isQuerying, setIsQuerying] = useState(false);
 
@@ -44,6 +47,9 @@ function App() {
       setStatus({ status: 'indexing', message: 'Repository indexing started...', progress: 0 });
       setAnswer('');
       setSources([]);
+      setConfidence('');
+      setConversationId(null);
+      setConversationHistory([]);
     } catch (error) {
       console.error('Error indexing repository:', error);
       alert('Error indexing repository. Please check the URL and try again.');
@@ -60,11 +66,23 @@ function App() {
     try {
       const response = await axios.post(`${API_BASE_URL}/query`, {
         session_id: sessionId,
-        question: question.trim()
+        question: question.trim(),
+        conversation_history: conversationHistory
       });
       
       setAnswer(response.data.answer);
       setSources(response.data.sources);
+      setConfidence(response.data.confidence);
+      setConversationId(response.data.conversation_id);
+      
+      // Update conversation history
+      const newHistory = [
+        ...conversationHistory,
+        { role: 'user', content: question.trim() },
+        { role: 'assistant', content: response.data.answer, confidence: response.data.confidence }
+      ];
+      setConversationHistory(newHistory);
+      
       setQuestion('');
     } catch (error) {
       console.error('Error querying repository:', error);
@@ -101,6 +119,31 @@ function App() {
         return 'text-red-500';
       default:
         return 'text-gray-500';
+    }
+  };
+
+  const getConfidenceColor = (confidence) => {
+    switch (confidence) {
+      case 'high':
+        return 'text-green-600 bg-green-100';
+      case 'medium':
+        return 'text-yellow-600 bg-yellow-100';
+      case 'low':
+        return 'text-red-600 bg-red-100';
+      default:
+        return 'text-gray-600 bg-gray-100';
+    }
+  };
+
+  const clearConversation = () => {
+    setConversationHistory([]);
+    setAnswer('');
+    setSources([]);
+    setConfidence('');
+    if (conversationId) {
+      // Clear conversation on backend
+      axios.delete(`${API_BASE_URL}/conversation/${conversationId}`)
+        .catch(error => console.error('Error clearing conversation:', error));
     }
   };
 
@@ -183,10 +226,20 @@ function App() {
         {/* Query Section */}
         {status?.status === 'ready' && (
           <div className="bg-white rounded-lg shadow-sm border p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center space-x-2">
-              <MessageSquare className="w-5 h-5" />
-              <span>Ask Questions</span>
-            </h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center space-x-2">
+                <MessageSquare className="w-5 h-5" />
+                <span>Ask Questions</span>
+              </h2>
+              {conversationHistory.length > 0 && (
+                <button
+                  onClick={clearConversation}
+                  className="px-3 py-1 text-sm text-gray-600 hover:text-gray-800 border border-gray-300 rounded-md hover:bg-gray-50"
+                >
+                  Clear Conversation
+                </button>
+              )}
+            </div>
             
             <form onSubmit={handleQuery} className="space-y-4">
               <div>
@@ -219,10 +272,45 @@ function App() {
               </div>
             </form>
 
-            {/* Answer Display */}
+            {/* Conversation History */}
+            {conversationHistory.length > 0 && (
+              <div className="mt-6">
+                <h3 className="text-md font-semibold text-gray-900 mb-3">Conversation History</h3>
+                <div className="space-y-4 max-h-96 overflow-y-auto">
+                  {conversationHistory.map((message, index) => (
+                    <div key={index} className={`p-4 rounded-md ${
+                      message.role === 'user' 
+                        ? 'bg-blue-50 border-l-4 border-blue-400' 
+                        : 'bg-gray-50 border-l-4 border-gray-400'
+                    }`}>
+                      <div className="flex justify-between items-start mb-2">
+                        <span className="text-sm font-medium text-gray-700">
+                          {message.role === 'user' ? 'You' : 'GitSleuth'}
+                        </span>
+                        {message.confidence && (
+                          <span className={`px-2 py-1 text-xs rounded-full ${getConfidenceColor(message.confidence)}`}>
+                            {message.confidence} confidence
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-gray-800 whitespace-pre-wrap">{message.content}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Current Answer Display */}
             {answer && (
               <div className="mt-6">
-                <h3 className="text-md font-semibold text-gray-900 mb-3">Answer</h3>
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="text-md font-semibold text-gray-900">Latest Answer</h3>
+                  {confidence && (
+                    <span className={`px-3 py-1 text-sm rounded-full ${getConfidenceColor(confidence)}`}>
+                      {confidence} confidence
+                    </span>
+                  )}
+                </div>
                 <div className="bg-gray-50 rounded-md p-4">
                   <p className="text-gray-800 whitespace-pre-wrap">{answer}</p>
                 </div>
@@ -236,6 +324,7 @@ function App() {
                         <div key={index} className="bg-white border rounded-md p-3">
                           <p className="text-sm font-medium text-primary-600 mb-1">
                             {source.file}
+                            {source.line_number && ` (line ${source.line_number})`}
                           </p>
                           <p className="text-sm text-gray-600 bg-gray-50 p-2 rounded font-mono">
                             {source.snippet}

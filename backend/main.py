@@ -9,7 +9,8 @@ from dotenv import load_dotenv
 
 from services.repo_processor import RepoProcessor
 from services.rag_service import RAGService
-from models.schemas import IndexRequest, QueryRequest, StatusResponse, QueryResponse
+from services.conversation_manager import ConversationManager
+from models.schemas import IndexRequest, QueryRequest, StatusResponse, QueryResponse, ConversationHistory
 
 # Load environment variables
 load_dotenv()
@@ -31,6 +32,7 @@ sessions: Dict[str, dict] = {}
 # Initialize services
 repo_processor = RepoProcessor()
 rag_service = RAGService()
+conversation_manager = ConversationManager()
 
 @app.post("/index")
 async def index_repository(request: IndexRequest, background_tasks: BackgroundTasks):
@@ -60,7 +62,7 @@ async def get_status(session_id: str):
 
 @app.post("/query")
 async def query_repository(request: QueryRequest):
-    """Query the indexed repository"""
+    """Query the indexed repository with conversation support"""
     if request.session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
     
@@ -69,11 +71,48 @@ async def query_repository(request: QueryRequest):
         raise HTTPException(status_code=400, detail="Repository not ready for querying")
     
     try:
-        # Query the RAG service
-        result = await rag_service.query(request.question, request.session_id)
+        # Query the RAG service with conversation support
+        result = await rag_service.query(
+            question=request.question,
+            session_id=request.session_id,
+            conversation_history=request.conversation_history
+        )
         return QueryResponse(**result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
+
+@app.get("/conversation/{conversation_id}")
+async def get_conversation(conversation_id: str):
+    """Get conversation history"""
+    conversation = conversation_manager.get_conversation(conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    
+    return conversation
+
+@app.get("/conversation/{conversation_id}/history")
+async def get_conversation_history(conversation_id: str, limit: int = 10):
+    """Get conversation history"""
+    history = conversation_manager.get_conversation_history(conversation_id, limit)
+    return {"history": history}
+
+@app.delete("/conversation/{conversation_id}")
+async def clear_conversation(conversation_id: str):
+    """Clear conversation history"""
+    success = conversation_manager.clear_conversation(conversation_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    
+    return {"message": "Conversation cleared successfully"}
+
+@app.get("/conversation/{conversation_id}/stats")
+async def get_conversation_stats(conversation_id: str):
+    """Get conversation statistics"""
+    stats = conversation_manager.get_conversation_stats(conversation_id)
+    if not stats:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    
+    return stats
 
 async def process_repository(session_id: str, repo_url: str):
     """Background task to process repository"""

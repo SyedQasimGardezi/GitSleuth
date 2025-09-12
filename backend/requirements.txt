@@ -10,3 +10,9 @@ langchain-community==0.0.10
 python-dotenv==1.0.0
 pydantic==2.5.0
 aiofiles==23.2.1
+tree-sitter==0.20.4
+tree-sitter-python==0.20.4
+tree-sitter-javascript==0.20.3
+tree-sitter-typescript==0.20.5
+tree-sitter-java==0.20.2
+tree-sitter-cpp==0.20.0
