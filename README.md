@@ -1,35 +1,51 @@
-# GitSleuth - AI-Powered GitHub Repository Analyzer
+# 🔍 GitSleuth
 
-GitSleuth is an advanced full-stack web application that indexes public GitHub repositories and enables intelligent code analysis through Retrieval-Augmented Generation (RAG) techniques. With cutting-edge features like semantic chunking, conversational memory, and confidence scoring, GitSleuth provides developers with powerful insights into any codebase.
+> **AI-Powered GitHub Repository Analyzer**
 
-## Features
+An advanced full-stack web application that indexes public GitHub repositories and enables intelligent code analysis through Retrieval-Augmented Generation (RAG) techniques. With cutting-edge features like semantic chunking, conversational memory, and confidence scoring, GitSleuth provides developers with powerful insights into any codebase.
 
-- 🔍 **Repository Indexing**: Clone and process GitHub repositories
-- 🤖 **AI-Powered Q&A**: Ask questions about the codebase using GPT-4
-- 📊 **Vector Search**: Uses ChromaDB for semantic code search
-- 🎨 **Modern UI**: Clean, responsive React frontend
-- ⚡ **Real-time Status**: Live updates during indexing process
-- 📁 **Smart Filtering**: Automatically filters out irrelevant files
-- 💬 **Conversational Memory**: Maintain conversation history for follow-up questions
-- 🧠 **Semantic Chunking**: Language-aware code parsing using tree-sitter
-- 🎯 **Confidence Scoring**: AI confidence assessment for answer quality
+[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://python.org)
+[![React](https://img.shields.io/badge/React-18-blue.svg)](https://reactjs.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com)
+[![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4-purple.svg)](https://openai.com)
 
-## Tech Stack
+## ✨ Key Features
 
-### Backend
-- **FastAPI**: Modern Python web framework
-- **OpenAI GPT-4**: Large language model for code analysis
-- **ChromaDB**: Vector database for semantic search
-- **LangChain**: Framework for RAG pipeline
-- **GitPython**: Git repository handling
-- **Tree-sitter**: Language-aware code parsing
-- **Conversation Manager**: In-memory conversation storage
+<table>
+<tr>
+<td width="50%">
 
-### Frontend
-- **React 18**: Modern React with hooks
-- **Tailwind CSS**: Utility-first CSS framework
-- **Axios**: HTTP client for API calls
-- **Lucide React**: Beautiful icons
+### 🚀 **Core Capabilities**
+- 🔍 **Repository Indexing** - Clone and process GitHub repositories
+- 🤖 **AI-Powered Q&A** - Ask questions using GPT-4
+- 📊 **Vector Search** - ChromaDB for semantic code search
+- 🎨 **Modern UI** - Clean, responsive React frontend
+
+</td>
+<td width="50%">
+
+### 🧠 **Advanced Features**
+- 💬 **Conversational Memory** - Context-aware follow-up questions
+- 🧠 **Semantic Chunking** - Tree-sitter language parsing
+- 🎯 **Confidence Scoring** - AI quality assessment
+- ⚡ **Real-time Updates** - Live indexing progress
+
+</td>
+</tr>
+</table>
+
+## 🛠️ Tech Stack
+
+<div align="center">
+
+| **Backend** | **Frontend** | **AI/ML** |
+|-------------|--------------|-----------|
+| 🐍 **Python 3.8+** | ⚛️ **React 18** | 🤖 **OpenAI GPT-4** |
+| 🚀 **FastAPI** | 🎨 **Tailwind CSS** | 📊 **ChromaDB** |
+| 🔗 **LangChain** | 📡 **Axios** | 🧠 **Tree-sitter** |
+| 📁 **GitPython** | 🎯 **Lucide Icons** | 💬 **Conversation AI** |
+
+</div>
 
 ## Project Structure
 
@@ -55,23 +71,34 @@ github_ragproject/
 └── README.md
 ```
 
-## Quick Start
+## 🚀 Quick Start
 
-### Option 1: Automated Setup (Recommended)
+<div align="center">
+
+### ⚡ **One-Click Setup** (Recommended)
+
 ```bash
-# Clone the repository
 git clone https://github.com/SyedQasimGardezi/GitSleuth.git
 cd GitSleuth
-
-# Install all dependencies
 install_dependencies.bat
-
-# Start the application
-start_backend.bat    # In one terminal
-start_frontend.bat   # In another terminal
 ```
 
-### Option 2: Manual Setup
+**Then start the application:**
+```bash
+start_backend.bat    # Terminal 1
+start_frontend.bat   # Terminal 2
+```
+
+🌐 **Open** [http://localhost:3000](http://localhost:3000)
+
+</div>
+
+---
+
+### 🔧 **Manual Setup**
+
+<details>
+<summary><b>Click to expand manual setup instructions</b></summary>
 
 #### Prerequisites
 - Python 3.8+
@@ -94,47 +121,78 @@ npm install
 npm start
 ```
 
-The application will be available at `http://localhost:3000`
+</details>
 
-## Usage
+## 📖 How to Use
 
-### 1. Index a Repository
-1. **Open the application** in your browser at `http://localhost:3000`
-2. **Enter a GitHub repository URL** (e.g., `https://github.com/facebook/react`)
-3. **Click "Index"** to start the indexing process
-4. **Wait for completion** - status will show "Repository ready for querying!"
+<div align="center">
 
-### 2. Ask Questions
-Once indexing is complete, you can ask questions about the codebase:
+### 🎯 **3 Simple Steps**
 
-**Basic Questions:**
+| Step | Action | Description |
+|------|--------|-------------|
+| **1️⃣** | **Index** | Enter GitHub repo URL and click "Index" |
+| **2️⃣** | **Wait** | Watch real-time progress until ready |
+| **3️⃣** | **Ask** | Start asking questions about the codebase |
+
+</div>
+
+---
+
+### 💬 **Example Questions**
+
+<table>
+<tr>
+<td width="50%">
+
+#### 🔍 **Basic Analysis**
 - "Where is authentication logic handled?"
 - "What is the purpose of the database.js file?"
 - "How does the user model look like?"
 - "What are the main components in this React app?"
 
-**Follow-up Questions (Conversational Memory):**
+</td>
+<td width="50%">
+
+#### 🧠 **Follow-up Questions**
 - "Can you show me the implementation details?"
 - "What other files use this function?"
 - "How is error handling done in this module?"
+- "What are the dependencies of this class?"
 
-### 3. Advanced Features
+</td>
+</tr>
+</table>
 
-**Conversation History:**
-- View all previous questions and answers
-- Ask follow-up questions that reference previous context
-- Clear conversation history when needed
+### ✨ **Advanced Features**
 
-**Confidence Scoring:**
-- Each answer includes a confidence level (High/Medium/Low)
-- High confidence = Green badge (reliable answer)
-- Medium confidence = Yellow badge (somewhat reliable)
-- Low confidence = Red badge (uncertain answer)
+<details>
+<summary><b>💬 Conversational Memory</b></summary>
 
-**Semantic Chunking:**
-- Code is intelligently parsed by semantic units
-- Functions, classes, and methods are preserved as complete units
-- Better context and more accurate source references
+- **Context Awareness**: Previous questions inform new answers
+- **Natural Flow**: Ask follow-up questions naturally
+- **History View**: See all previous conversations
+- **Clear Option**: Reset conversation when needed
+
+</details>
+
+<details>
+<summary><b>🎯 Confidence Scoring</b></summary>
+
+- **High Confidence** 🟢 - Reliable, well-supported answers
+- **Medium Confidence** 🟡 - Somewhat reliable answers  
+- **Low Confidence** 🔴 - Uncertain or incomplete answers
+
+</details>
+
+<details>
+<summary><b>🧠 Semantic Chunking</b></summary>
+
+- **Language-Aware**: Preserves complete functions and classes
+- **Better Context**: More accurate source references
+- **Line Numbers**: Precise code location information
+
+</details>
 
 ## API Endpoints
 
@@ -328,48 +386,104 @@ The system intelligently filters files during indexing:
 - **Memory Usage**: Monitor memory usage when processing very large repositories
 - **API Rate Limits**: The system processes embeddings in batches to respect rate limits
 
-## Key Improvements Over Basic RAG
+## 🚀 Why GitSleuth?
 
-### 🧠 **Semantic Understanding**
-- **Before**: Simple text splitting that could break code functions
-- **After**: Tree-sitter parsing preserves complete functions, classes, and methods
-- **Result**: More accurate context and better answer quality
+<div align="center">
 
-### 💬 **Conversational Intelligence** 
-- **Before**: Each question treated independently
-- **After**: Maintains conversation history for context-aware follow-ups
-- **Result**: Natural, flowing conversations about code
+### **vs. Basic RAG Systems**
 
-### 🎯 **Confidence Transparency**
-- **Before**: No indication of answer reliability
-- **After**: AI-powered confidence scoring with visual indicators
-- **Result**: Users can gauge answer trustworthiness
+| Feature | Basic RAG | **GitSleuth** |
+|---------|-----------|---------------|
+| **Code Understanding** | ❌ Breaks functions | ✅ **Preserves complete code units** |
+| **Conversation** | ❌ No memory | ✅ **Context-aware follow-ups** |
+| **Answer Quality** | ❌ No confidence | ✅ **AI confidence scoring** |
+| **Source References** | ❌ Basic file refs | ✅ **Line numbers + context** |
 
-### 📊 **Enhanced Source References**
-- **Before**: Basic file references
-- **After**: Line numbers, semantic chunk types, and better context
-- **Result**: More precise code navigation
+</div>
 
-## Demo
+---
 
-Try GitSleuth with these popular repositories:
+### 🎯 **Key Advantages**
 
-- **React**: `https://github.com/facebook/react`
-- **Vue.js**: `https://github.com/vuejs/vue`
-- **Express**: `https://github.com/expressjs/express`
-- **Django**: `https://github.com/django/django`
+<details>
+<summary><b>🧠 Semantic Understanding</b></summary>
 
-## Contributing
+**Before**: Simple text splitting that could break code functions  
+**After**: Tree-sitter parsing preserves complete functions, classes, and methods  
+**Result**: More accurate context and better answer quality
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+</details>
 
-## License
+<details>
+<summary><b>💬 Conversational Intelligence</b></summary>
+
+**Before**: Each question treated independently  
+**After**: Maintains conversation history for context-aware follow-ups  
+**Result**: Natural, flowing conversations about code
+
+</details>
+
+<details>
+<summary><b>🎯 Confidence Transparency</b></summary>
+
+**Before**: No indication of answer reliability  
+**After**: AI-powered confidence scoring with visual indicators  
+**Result**: Users can gauge answer trustworthiness
+
+</details>
+
+## 🎮 Try It Out
+
+<div align="center">
+
+### **Popular Repositories to Test**
+
+| Repository | Language | Description |
+|------------|----------|-------------|
+| [**React**](https://github.com/facebook/react) | JavaScript | Popular UI library |
+| [**Vue.js**](https://github.com/vuejs/vue) | JavaScript | Progressive framework |
+| [**Express**](https://github.com/expressjs/express) | JavaScript | Web framework |
+| [**Django**](https://github.com/django/django) | Python | Web framework |
+
+</div>
+
+---
+
+### 🎯 **Sample Questions to Try**
+
+- *"How does the component lifecycle work in this React app?"*
+- *"What authentication methods are implemented?"*
+- *"Show me the main routing configuration"*
+- *"How is state management handled?"*
+
+<div align="center">
+
+**🚀 Ready to explore? Start with any repository above!**
+
+</div>
+
+## 🤝 Contributing
+
+We welcome contributions! Here's how you can help:
+
+1. **Fork** the repository
+2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
+3. **Commit** your changes (`git commit -m 'Add amazing feature'`)
+4. **Push** to the branch (`git push origin feature/amazing-feature`)
+5. **Open** a Pull Request
+
+---
+
+## 📄 License
 
 This project is for demonstration purposes as part of a take-home assignment.
-#   G i t S l e u t h 
- 
- 
+
+---
+
+<div align="center">
+
+### ⭐ **Star this repository if you found it helpful!**
+
+**Made with ❤️ by [Syed Qasim Gardezi](https://github.com/SyedQasimGardezi)**
+
+</div>
