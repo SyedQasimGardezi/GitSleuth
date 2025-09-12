@@ -9,27 +9,53 @@ from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain.schema import Document
 from langchain.prompts import ChatPromptTemplate
 import asyncio
-from config import OPENAI_API_KEY, CHROMA_DB_PATH, CHUNK_SIZE, CHUNK_OVERLAP
+from config import config
 from .semantic_chunker import SemanticChunker
 from .conversation_manager import ConversationManager
+from utils.logger import get_logger
+from utils.exceptions import QueryError, EmbeddingError, DatabaseError
+from utils.cache import cache_manager
 
 class RAGService:
     def __init__(self):
-        self.openai_api_key = OPENAI_API_KEY
+        self.logger = get_logger(__name__)
         
-        # Initialize OpenAI services
-        self.embeddings = OpenAIEmbeddings(openai_api_key=self.openai_api_key)
-        self.llm = ChatOpenAI(
-            openai_api_key=self.openai_api_key,
-            model="gpt-4",
-            temperature=0.1
-        )
+        # Configuration
+        self.openai_api_key = config.get('OPENAI_API_KEY')
+        self.chroma_db_path = config.get('CHROMA_DB_PATH')
+        self.chunk_size = config.get('CHUNK_SIZE')
+        self.chunk_overlap = config.get('CHUNK_OVERLAP')
+        self.max_tokens = config.get('OPENAI_MAX_TOKENS', 4000)
+        self.temperature = config.get('OPENAI_TEMPERATURE', 0.1)
+        self.model_name = config.get('OPENAI_MODEL', 'gpt-4')
         
-        # Initialize ChromaDB
-        self.chroma_client = chromadb.PersistentClient(
-            path=CHROMA_DB_PATH,
-            settings=Settings(anonymized_telemetry=False)
-        )
+        # Initialize OpenAI services with error handling
+        try:
+            self.embeddings = OpenAIEmbeddings(
+                openai_api_key=self.openai_api_key,
+                model="text-embedding-3-large"  # Use latest embedding model
+            )
+            self.llm = ChatOpenAI(
+                openai_api_key=self.openai_api_key,
+                model=self.model_name,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens
+            )
+            self.logger.info("OpenAI components initialized successfully")
+        except Exception as e:
+            self.logger.error(f"Failed to initialize OpenAI components: {e}")
+            raise EmbeddingError(f"OpenAI initialization failed: {str(e)}")
+        
+        # Initialize ChromaDB with error handling
+        try:
+            self.chroma_client = chromadb.PersistentClient(
+                path=self.chroma_db_path,
+                settings=Settings(anonymized_telemetry=False)
+            )
+            self.logger.info("ChromaDB client initialized successfully")
+        except Exception as e:
+            self.logger.error(f"Failed to initialize ChromaDB: {e}")
+            raise DatabaseError(f"ChromaDB initialization failed: {str(e)}")
         
         # Initialize services
         self.semantic_chunker = SemanticChunker()
@@ -37,11 +63,15 @@ class RAGService:
         
         # Text splitter for fallback chunking
         self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=CHUNK_SIZE,
-            chunk_overlap=CHUNK_OVERLAP,
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap,
             length_function=len,
             separators=["\n\n", "\n", " ", ""]
         )
+        
+        # Performance tracking
+        self.embedding_cache = {}
+        self.query_cache = {}
         
         # Chat prompt template with confidence scoring
         self.prompt_template = ChatPromptTemplate.from_messages([
