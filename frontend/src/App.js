@@ -9,15 +9,13 @@ function App() {
   const [sessionId, setSessionId] = useState(null);
   const [status, setStatus] = useState(null);
   const [question, setQuestion] = useState('');
-  const [answer, setAnswer] = useState('');
   const [sources, setSources] = useState([]);
-  const [confidence, setConfidence] = useState('');
   const [conversationId, setConversationId] = useState(null);
   const [conversationHistory, setConversationHistory] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isQuerying, setIsQuerying] = useState(false);
 
-  // Poll for status updates
+  // ---- Poll for backend progress ----
   useEffect(() => {
     if (sessionId && status?.status === 'indexing') {
       const interval = setInterval(async () => {
@@ -42,12 +40,14 @@ function App() {
       const response = await axios.post(`${API_BASE_URL}/index`, {
         repo_url: repoUrl.trim()
       });
-      
+
       setSessionId(response.data.session_id);
-      setStatus({ status: 'indexing', message: 'Repository indexing started...', progress: 0 });
-      setAnswer('');
+      setStatus({
+        status: 'indexing',
+        message: 'Cloning repository...',
+        progress: 0
+      });
       setSources([]);
-      setConfidence('');
       setConversationId(null);
       setConversationHistory([]);
     } catch (error) {
@@ -69,20 +69,20 @@ function App() {
         question: question.trim(),
         conversation_history: conversationHistory
       });
-      
-      setAnswer(response.data.answer);
-      setSources(response.data.sources);
-      setConfidence(response.data.confidence);
+
+      setSources(response.data.sources || []);
       setConversationId(response.data.conversation_id);
-      
-      // Update conversation history
+
       const newHistory = [
         ...conversationHistory,
-        { role: 'user', content: question.trim() },
-        { role: 'assistant', content: response.data.answer, confidence: response.data.confidence }
+        { role: 'user', content: question.trim(), confidence: '' },
+        {
+          role: 'assistant',
+          content: response.data.answer,
+          confidence: response.data.confidence // use backend confidence
+        }
       ];
       setConversationHistory(newHistory);
-      
       setQuestion('');
     } catch (error) {
       console.error('Error querying repository:', error);
@@ -92,9 +92,10 @@ function App() {
     }
   };
 
+  // ---- UI helpers ----
   const getStatusIcon = () => {
     if (!status) return null;
-    
+
     switch (status.status) {
       case 'indexing':
         return <Loader2 className="w-5 h-5 animate-spin text-blue-500" />;
@@ -109,7 +110,7 @@ function App() {
 
   const getStatusColor = () => {
     if (!status) return 'text-gray-500';
-    
+
     switch (status.status) {
       case 'indexing':
         return 'text-blue-500';
@@ -125,27 +126,27 @@ function App() {
   const getConfidenceColor = (confidence) => {
     switch (confidence) {
       case 'high':
-        return 'text-green-600 bg-green-100';
+        return 'text-white bg-green-600 border-green-600';
       case 'medium':
-        return 'text-yellow-600 bg-yellow-100';
+        return 'text-white bg-yellow-500 border-yellow-500';
       case 'low':
-        return 'text-red-600 bg-red-100';
+        return 'text-white bg-red-600 border-red-600';
       default:
-        return 'text-gray-600 bg-gray-100';
+        return 'text-gray-600 bg-gray-200 border-gray-300';
     }
   };
 
   const clearConversation = () => {
     setConversationHistory([]);
-    setAnswer('');
     setSources([]);
-    setConfidence('');
     if (conversationId) {
-      // Clear conversation on backend
       axios.delete(`${API_BASE_URL}/conversation/${conversationId}`)
         .catch(error => console.error('Error clearing conversation:', error));
     }
   };
+
+  // Latest assistant reply
+  const latestAssistantMsg = [...conversationHistory].reverse().find(msg => msg.role === 'assistant');
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -206,7 +207,7 @@ function App() {
                   <p className={`text-sm font-medium ${getStatusColor()}`}>
                     {status.message}
                   </p>
-                  {status.progress !== undefined && status.status === 'indexing' && (
+                  {status.progress !== undefined && (
                     <div className="mt-2">
                       <div className="w-full bg-gray-200 rounded-full h-2">
                         <div 
@@ -241,6 +242,7 @@ function App() {
               )}
             </div>
             
+            {/* Query Form */}
             <form onSubmit={handleQuery} className="space-y-4">
               <div>
                 <label htmlFor="question" className="block text-sm font-medium text-gray-700 mb-2">
@@ -277,42 +279,41 @@ function App() {
               <div className="mt-6">
                 <h3 className="text-md font-semibold text-gray-900 mb-3">Conversation History</h3>
                 <div className="space-y-4 max-h-96 overflow-y-auto">
-                  {conversationHistory.map((message, index) => (
-                    <div key={index} className={`p-4 rounded-md ${
-                      message.role === 'user' 
-                        ? 'bg-blue-50 border-l-4 border-blue-400' 
-                        : 'bg-gray-50 border-l-4 border-gray-400'
-                    }`}>
-                      <div className="flex justify-between items-start mb-2">
-                        <span className="text-sm font-medium text-gray-700">
-                          {message.role === 'user' ? 'You' : 'GitSleuth'}
-                        </span>
-                        {message.confidence && (
-                          <span className={`px-2 py-1 text-xs rounded-full ${getConfidenceColor(message.confidence)}`}>
-                            {message.confidence} confidence
+                  {conversationHistory.map((message, index) => {
+                    const isAssistant = message.role === 'assistant';
+                    const borderColor = getConfidenceColor(message.confidence).split(' ')[1]; // use border color
+                    return (
+                      <div
+                        key={index}
+                        className={`p-4 rounded-md ${isAssistant ? `border-l-4 ${borderColor}` : 'bg-blue-50 border-l-4 border-blue-400'}`}
+                      >
+                        <div className="flex justify-between items-start mb-2">
+                          <span className="text-sm font-medium text-gray-700">
+                            {message.role === 'user' ? 'You' : 'GitSleuth'}
                           </span>
-                        )}
+                          <span className={`px-2 py-1 text-xs rounded-full ${getConfidenceColor(message.confidence)}`}>
+                            {message.confidence || 'medium'} confidence
+                          </span>
+                        </div>
+                        <p className="text-gray-800 whitespace-pre-wrap">{message.content}</p>
                       </div>
-                      <p className="text-gray-800 whitespace-pre-wrap">{message.content}</p>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
 
-            {/* Current Answer Display */}
-            {answer && (
+            {/* Latest Answer */}
+            {latestAssistantMsg && (
               <div className="mt-6">
                 <div className="flex justify-between items-center mb-3">
                   <h3 className="text-md font-semibold text-gray-900">Latest Answer</h3>
-                  {confidence && (
-                    <span className={`px-3 py-1 text-sm rounded-full ${getConfidenceColor(confidence)}`}>
-                      {confidence} confidence
-                    </span>
-                  )}
+                  <span className={`px-3 py-1 text-sm rounded-full ${getConfidenceColor(latestAssistantMsg.confidence)}`}>
+                    {latestAssistantMsg.confidence || 'medium'} confidence
+                  </span>
                 </div>
                 <div className="bg-gray-50 rounded-md p-4">
-                  <p className="text-gray-800 whitespace-pre-wrap">{answer}</p>
+                  <p className="text-gray-800 whitespace-pre-wrap">{latestAssistantMsg.content}</p>
                 </div>
 
                 {/* Sources */}
