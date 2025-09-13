@@ -272,8 +272,8 @@ async def get_conversation_stats(conversation_id: str):
     return stats
 
 # ---- Background Repository Processing with concurrency ----
-MAX_FILE_CONCURRENCY = 5
-MAX_CHUNK_CONCURRENCY = 5
+MAX_FILE_CONCURRENCY = 10
+MAX_CHUNK_CONCURRENCY = 10
 
 async def process_repository(session_id: str, repo_url: str):
     try:

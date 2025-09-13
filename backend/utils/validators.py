@@ -9,8 +9,9 @@ class URLValidator:
     """GitHub URL validation"""
     
     GITHUB_PATTERN = re.compile(
-        r'^https://github\.com/[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?/[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?/?$'
+        r'^https://github\.com/[a-zA-Z0-9][a-zA-Z0-9-_]*/[a-zA-Z0-9][a-zA-Z0-9-_]*/?$'
     )
+
     
     @classmethod
     def validate_github_url(cls, url: str) -> str:

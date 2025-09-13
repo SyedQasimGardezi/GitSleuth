@@ -9,7 +9,13 @@ if %errorlevel%==0 (
     set PYTHON=python
 )
 
+REM --- Activate virtual environment ---
+call backend\venv\Scripts\activate.bat
+
+REM --- Change to backend directory ---
 cd backend
+
+REM --- Start the backend ---
 %PYTHON% main.py
 
 pause

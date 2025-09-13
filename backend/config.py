@@ -1,9 +1,16 @@
+# config.py
 import os
 from pathlib import Path
 from typing import Dict, Any, Optional
+from dotenv import load_dotenv
 from utils.validators import ConfigValidator
 from utils.exceptions import ConfigurationError
 from utils.logger import get_logger
+
+# ---------------------------
+# Load environment variables
+# ---------------------------
+load_dotenv()  # Load .env file if present
 
 logger = get_logger(__name__)
 
@@ -18,7 +25,6 @@ class Config:
     # Env Helpers
     # ---------------------------
     def _get_required_env(self, key: str, default: Optional[str] = None) -> str:
-        """Get required environment variable or raise ConfigurationError"""
         value = os.getenv(key, default)
         if not value:
             raise ConfigurationError(f"Required environment variable {key} not set")
@@ -45,7 +51,9 @@ class Config:
     def _load_config(self) -> None:
         try:
             # OpenAI Configuration
-            self._config["OPENAI_API_KEY"] = self._get_required_env("OPENAI_API_KEY")
+            self._config["OPENAI_API_KEY"] = self._get_required_env(
+                "OPENAI_API_KEY", "sk-placeholder-key-replace-with-real-key"
+            )
             self._config["OPENAI_MODEL"] = os.getenv("OPENAI_MODEL", "gpt-4")
             self._config["OPENAI_TEMPERATURE"] = self._get_env_float("OPENAI_TEMPERATURE", "0.1")
             self._config["OPENAI_MAX_TOKENS"] = self._get_env_int("OPENAI_MAX_TOKENS", "4000")
@@ -68,12 +76,16 @@ class Config:
 
             # Rate Limiting Configuration
             self._config["RATE_LIMIT_ENABLED"] = self._get_env_bool("RATE_LIMIT_ENABLED", "true")
-            self._config["RATE_LIMIT_REQUESTS_PER_MINUTE"] = self._get_env_int("RATE_LIMIT_REQUESTS_PER_MINUTE", "100")
-            self._config["RATE_LIMIT_QUERIES_PER_MINUTE"] = self._get_env_int("RATE_LIMIT_QUERIES_PER_MINUTE", "20")
+            self._config["RATE_LIMIT_REQUESTS_PER_MINUTE"] = self._get_env_int(
+                "RATE_LIMIT_REQUESTS_PER_MINUTE", "100"
+            )
+            self._config["RATE_LIMIT_QUERIES_PER_MINUTE"] = self._get_env_int(
+                "RATE_LIMIT_QUERIES_PER_MINUTE", "20"
+            )
 
             # Caching Configuration
             self._config["CACHE_ENABLED"] = self._get_env_bool("CACHE_ENABLED", "true")
-            self._config["CACHE_TTL"] = self._get_env_int("CACHE_TTL", "3600")  # 1 hour
+            self._config["CACHE_TTL"] = self._get_env_int("CACHE_TTL", "3600")
             self._config["CACHE_TYPE"] = os.getenv("CACHE_TYPE", "memory")  # memory or file
 
             # Logging Configuration
@@ -116,23 +128,20 @@ class Config:
     # ---------------------------
     def _validate_config(self) -> None:
         try:
-            # Validate OpenAI
+            # Validate OpenAI key (skip placeholder)
+            if self._config["OPENAI_API_KEY"].startswith("sk-placeholder"):
+                raise ConfigurationError("OPENAI_API_KEY is not set correctly in environment or .env")
+
             ConfigValidator.validate_openai_key(self._config["OPENAI_API_KEY"])
+            ConfigValidator.validate_chunk_size(self._config["CHUNK_SIZE"])
+            ConfigValidator.validate_chunk_overlap(self._config["CHUNK_OVERLAP"], self._config["CHUNK_SIZE"])
 
-            # Validate chunk configuration
-            chunk_size = ConfigValidator.validate_chunk_size(self._config["CHUNK_SIZE"])
-            chunk_overlap = ConfigValidator.validate_chunk_overlap(
-                self._config["CHUNK_OVERLAP"], chunk_size
-            )
-            self._config["CHUNK_SIZE"] = chunk_size
-            self._config["CHUNK_OVERLAP"] = chunk_overlap
-
-            # Validate ranges
+            # Range checks
             if not (1 <= self._config["API_PORT"] <= 65535):
                 raise ConfigurationError("API_PORT must be between 1 and 65535")
             if not (0 <= self._config["OPENAI_TEMPERATURE"] <= 2):
                 raise ConfigurationError("OPENAI_TEMPERATURE must be between 0 and 2")
-            if self._config["MAX_FILE_SIZE"] < 1024:  # At least 1KB
+            if self._config["MAX_FILE_SIZE"] < 1024:
                 raise ConfigurationError("MAX_FILE_SIZE must be at least 1024 bytes")
 
             logger.info("Configuration validated successfully")
@@ -161,16 +170,6 @@ class Config:
 
 
 # ---------------------------
-# Global Instance + Exports
+# Global instance
 # ---------------------------
 config = Config()
-
-OPENAI_API_KEY = config.get("OPENAI_API_KEY")
-API_HOST = config.get("API_HOST")
-API_PORT = config.get("API_PORT")
-CHROMA_DB_PATH = config.get("CHROMA_DB_PATH")
-CHUNK_SIZE = config.get("CHUNK_SIZE")
-CHUNK_OVERLAP = config.get("CHUNK_OVERLAP")
-MAX_FILE_SIZE = config.get("MAX_FILE_SIZE")
-VALID_EXTENSIONS = config.get("VALID_EXTENSIONS")
-IGNORE_DIRS = config.get("IGNORE_DIRS")

@@ -1,152 +1,265 @@
-from tree_sitter import Language, Parser
+import ast
+import re
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 class SemanticChunker:
-    # Prebuilt extension map (class-level, no reallocation)
     EXTENSION_MAP = {
-        '.py': 'python', '.js': 'javascript', '.jsx': 'javascript',
-        '.ts': 'typescript', '.tsx': 'typescript',
-        '.java': 'java', '.cpp': 'cpp', '.c': 'cpp',
-        '.h': 'cpp', '.hpp': 'cpp'
+        '.py': 'python',
+        '.js': 'javascript',
+        '.jsx': 'javascript',
+        '.ts': 'typescript',
+        '.tsx': 'typescript',
+        '.java': 'java',
+        '.c': 'cpp',
+        '.cpp': 'cpp',
+        '.h': 'cpp',
+        '.hpp': 'cpp'
     }
-
-    NODE_TYPES = {
-        'python': [
-            'function_definition', 'class_definition', 'import_statement',
-            'import_from_statement', 'decorated_definition', 'async_function_definition'
-        ],
-        'javascript': [
-            'function_declaration', 'class_declaration', 'method_definition',
-            'import_statement', 'export_statement', 'arrow_function'
-        ],
-        'typescript': [
-            'function_declaration', 'class_declaration', 'method_definition',
-            'import_statement', 'export_statement', 'arrow_function',
-            'interface_declaration', 'type_alias_declaration'
-        ],
-        'java': [
-            'class_declaration', 'method_declaration', 'constructor_declaration',
-            'import_declaration', 'interface_declaration', 'enum_declaration'
-        ],
-        'cpp': [
-            'function_definition', 'class_specifier', 'namespace_definition',
-            'include_directive', 'struct_specifier', 'enum_specifier'
-        ]
-    }
-
-    def __init__(self, so_path: str = "build/my-languages.so"):
-        """
-        Initialize parsers. You must precompile with something like:
-        Language.build_library(
-            "build/my-languages.so",
-            [
-                "vendor/tree-sitter-python",
-                "vendor/tree-sitter-javascript",
-                "vendor/tree-sitter-typescript/tsx",
-                "vendor/tree-sitter-java",
-                "vendor/tree-sitter-cpp"
-            ]
-        )
-        """
-        self.parsers: Dict[str, Parser] = {}
-        try:
-            self.languages = {
-                "python": Language(so_path, "python"),
-                "javascript": Language(so_path, "javascript"),
-                "typescript": Language(so_path, "typescript"),
-                "java": Language(so_path, "java"),
-                "cpp": Language(so_path, "cpp"),
-            }
-            for lang, ts_lang in self.languages.items():
-                parser = Parser()
-                parser.set_language(ts_lang)
-                self.parsers[lang] = parser
-        except Exception as e:
-            print(f"[WARN] Failed to init tree-sitter: {e}")
-            self.parsers = {}
 
     def get_language_from_extension(self, file_extension: str) -> Optional[str]:
-        """Fast lookup for extension → language"""
         return self.EXTENSION_MAP.get(file_extension.lower())
-
-    def extract_semantic_chunks(
-        self, content: str, file_path: str, file_type: str
-    ) -> List[Dict[str, Any]]:
-        """Extract semantic chunks from code content"""
-        lang = self.get_language_from_extension(file_type)
-        if lang and lang in self.parsers:
-            try:
-                tree = self.parsers[lang].parse(content.encode("utf8"))
-                return self._extract_from_ast(tree, content, file_path, lang)
-            except Exception as e:
-                print(f"[WARN] Tree-sitter failed for {file_path}: {e}")
-        # Fallback if unsupported
-        return self._fallback_chunking(content, file_path)
-
-    def _extract_from_ast(
-        self, tree, content: str, file_path: str, language: str
-    ) -> List[Dict[str, Any]]:
-        """Iterative AST traversal for speed"""
-        chunks = []
-        lines = content.splitlines()
-        wanted_nodes = set(self.NODE_TYPES.get(language, []))
-
-        cursor = tree.walk()
-        stack = [cursor.node]
-
-        while stack:
-            node = stack.pop()
-            if node.type in wanted_nodes:
-                start, end = node.start_point[0], node.end_point[0]
-                code_block = "\n".join(lines[start:end + 1])
-                if len(code_block.strip()) > 50:
-                    chunks.append({
-                        "content": code_block,
-                        "file_path": file_path,
-                        "start_line": start + 1,
-                        "end_line": end + 1,
-                        "type": node.type,
-                        "language": language,
-                        "is_semantic": True
-                    })
-            # push children
-            stack.extend(node.children)
-
-        return chunks
-
-    def _fallback_chunking(self, content: str, file_path: str) -> List[Dict[str, Any]]:
-        """Fallback when parsing fails: chunk by paragraphs (~100 lines)"""
-        chunks = []
-        lines = content.splitlines()
-        step = 100  # configurable batch size
-
-        for i in range(0, len(lines), step):
-            section = "\n".join(lines[i:i+step]).strip()
-            if len(section) > 50:
-                chunks.append({
-                    "content": section,
-                    "file_path": file_path,
-                    "start_line": i + 1,
-                    "end_line": min(i+step, len(lines)),
-                    "type": "text_section",
-                    "language": "text",
-                    "is_semantic": False
-                })
-        return chunks
 
     def chunk_document(
         self, content: str, file_path: str, file_type: str
     ) -> List[Dict[str, Any]]:
-        if not content or len(content) < 10:
+        if not content or len(content.strip()) < 10:
             return []
 
-        chunks = self.extract_semantic_chunks(content, file_path, file_type)
-        if not chunks:
+        lang = self.get_language_from_extension(file_type)
+        
+        # Try language-specific chunking
+        if lang == "python":
+            chunks = self._extract_python_chunks(content, file_path)
+        elif lang == "javascript":
+            chunks = self._extract_javascript_chunks(content, file_path)
+        elif lang == "typescript":
+            chunks = self._extract_typescript_chunks(content, file_path)
+        elif lang == "java":
+            chunks = self._extract_java_chunks(content, file_path)
+        elif lang == "cpp":
+            chunks = self._extract_cpp_chunks(content, file_path)
+        else:
             chunks = self._fallback_chunking(content, file_path)
 
+        # Add metadata
         for i, ch in enumerate(chunks):
             ch["chunk_id"] = i
             ch["chunk_size"] = len(ch["content"])
 
+        return chunks
+
+    # ---------------- PYTHON CHUNKING ----------------
+    def _extract_python_chunks(self, content: str, file_path: str) -> List[Dict[str, Any]]:
+        chunks = []
+        lines = content.splitlines()
+
+        try:
+            tree = ast.parse(content)
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    start_line = node.lineno - 1
+                    end_line = max(getattr(node.body[-1], 'lineno', node.lineno), node.lineno)
+                    code_block = "\n".join(lines[node.lineno - 1:end_line])
+                    if len(code_block.strip()) > 20:
+                        chunks.append({
+                            "content": code_block,
+                            "file_path": file_path,
+                            "start_line": start_line + 1,
+                            "end_line": end_line,
+                            "type": type(node).__name__,
+                            "language": "python",
+                            "is_semantic": True
+                        })
+        except Exception:
+            # If AST parsing fails, fallback
+            return self._fallback_chunking(content, file_path)
+
+        # If no semantic chunks found, fallback
+        if not chunks:
+            return self._fallback_chunking(content, file_path)
+
+        return chunks
+
+    # ---------------- JAVASCRIPT CHUNKING ----------------
+    def _extract_javascript_chunks(self, content: str, file_path: str) -> List[Dict[str, Any]]:
+        chunks = []
+        lines = content.splitlines()
+        
+        # Find functions, classes, and objects
+        patterns = [
+            (r'^(export\s+)?(async\s+)?function\s+(\w+)', 'function'),
+            (r'^(export\s+)?class\s+(\w+)', 'class'),
+            (r'^(export\s+)?const\s+(\w+)\s*=\s*(async\s+)?\(', 'arrow_function'),
+            (r'^(export\s+)?let\s+(\w+)\s*=\s*(async\s+)?\(', 'arrow_function'),
+            (r'^(export\s+)?var\s+(\w+)\s*=\s*(async\s+)?\(', 'arrow_function'),
+        ]
+        
+        for i, line in enumerate(lines):
+            for pattern, chunk_type in patterns:
+                if re.match(pattern, line.strip()):
+                    # Find the end of the block
+                    end_line = self._find_block_end(lines, i)
+                    if end_line > i:
+                        code_block = "\n".join(lines[i:end_line])
+                        if len(code_block.strip()) > 20:
+                            chunks.append({
+                                "content": code_block,
+                                "file_path": file_path,
+                                "start_line": i + 1,
+                                "end_line": end_line,
+                                "type": chunk_type,
+                                "language": "javascript",
+                                "is_semantic": True
+                            })
+        
+        return chunks if chunks else self._fallback_chunking(content, file_path)
+
+    # ---------------- TYPESCRIPT CHUNKING ----------------
+    def _extract_typescript_chunks(self, content: str, file_path: str) -> List[Dict[str, Any]]:
+        chunks = []
+        lines = content.splitlines()
+        
+        # TypeScript patterns
+        patterns = [
+            (r'^(export\s+)?(async\s+)?function\s+(\w+)', 'function'),
+            (r'^(export\s+)?class\s+(\w+)', 'class'),
+            (r'^(export\s+)?interface\s+(\w+)', 'interface'),
+            (r'^(export\s+)?type\s+(\w+)', 'type'),
+            (r'^(export\s+)?const\s+(\w+)\s*:\s*\w+\s*=\s*(async\s+)?\(', 'arrow_function'),
+            (r'^(export\s+)?let\s+(\w+)\s*:\s*\w+\s*=\s*(async\s+)?\(', 'arrow_function'),
+        ]
+        
+        for i, line in enumerate(lines):
+            for pattern, chunk_type in patterns:
+                if re.match(pattern, line.strip()):
+                    end_line = self._find_block_end(lines, i)
+                    if end_line > i:
+                        code_block = "\n".join(lines[i:end_line])
+                        if len(code_block.strip()) > 20:
+                            chunks.append({
+                                "content": code_block,
+                                "file_path": file_path,
+                                "start_line": i + 1,
+                                "end_line": end_line,
+                                "type": chunk_type,
+                                "language": "typescript",
+                                "is_semantic": True
+                            })
+        
+        return chunks if chunks else self._fallback_chunking(content, file_path)
+
+    # ---------------- JAVA CHUNKING ----------------
+    def _extract_java_chunks(self, content: str, file_path: str) -> List[Dict[str, Any]]:
+        chunks = []
+        lines = content.splitlines()
+        
+        patterns = [
+            (r'^(public|private|protected)?\s*(static\s+)?(final\s+)?class\s+(\w+)', 'class'),
+            (r'^(public|private|protected)?\s*(static\s+)?(final\s+)?(void|\w+)\s+(\w+)\s*\(', 'method'),
+            (r'^(public|private|protected)?\s*(static\s+)?(final\s+)?(\w+)\s+(\w+)\s*;', 'field'),
+        ]
+        
+        for i, line in enumerate(lines):
+            for pattern, chunk_type in patterns:
+                if re.match(pattern, line.strip()):
+                    end_line = self._find_block_end(lines, i)
+                    if end_line > i:
+                        code_block = "\n".join(lines[i:end_line])
+                        if len(code_block.strip()) > 20:
+                            chunks.append({
+                                "content": code_block,
+                                "file_path": file_path,
+                                "start_line": i + 1,
+                                "end_line": end_line,
+                                "type": chunk_type,
+                                "language": "java",
+                                "is_semantic": True
+                            })
+        
+        return chunks if chunks else self._fallback_chunking(content, file_path)
+
+    # ---------------- C++ CHUNKING ----------------
+    def _extract_cpp_chunks(self, content: str, file_path: str) -> List[Dict[str, Any]]:
+        chunks = []
+        lines = content.splitlines()
+        
+        patterns = [
+            (r'^(class|struct)\s+(\w+)', 'class'),
+            (r'^(\w+::)?(\w+)\s+(\w+)\s*\(', 'function'),
+            (r'^#include\s*<[^>]+>', 'include'),
+            (r'^#define\s+(\w+)', 'define'),
+        ]
+        
+        for i, line in enumerate(lines):
+            for pattern, chunk_type in patterns:
+                if re.match(pattern, line.strip()):
+                    end_line = self._find_block_end(lines, i)
+                    if end_line > i:
+                        code_block = "\n".join(lines[i:end_line])
+                        if len(code_block.strip()) > 20:
+                            chunks.append({
+                                "content": code_block,
+                                "file_path": file_path,
+                                "start_line": i + 1,
+                                "end_line": end_line,
+                                "type": chunk_type,
+                                "language": "cpp",
+                                "is_semantic": True
+                            })
+        
+        return chunks if chunks else self._fallback_chunking(content, file_path)
+
+    # ---------------- HELPER METHODS ----------------
+    def _find_block_end(self, lines: List[str], start_line: int) -> int:
+        """Find the end of a code block by counting braces/brackets"""
+        brace_count = 0
+        in_string = False
+        escape_next = False
+        
+        for i in range(start_line, len(lines)):
+            line = lines[i]
+            for char in line:
+                if escape_next:
+                    escape_next = False
+                    continue
+                    
+                if char == '\\':
+                    escape_next = True
+                    continue
+                    
+                if char in ['"', "'"] and not in_string:
+                    in_string = True
+                    continue
+                elif char in ['"', "'"] and in_string:
+                    in_string = False
+                    continue
+                    
+                if not in_string:
+                    if char in ['{', '(']:
+                        brace_count += 1
+                    elif char in ['}', ')']:
+                        brace_count -= 1
+                        if brace_count == 0:
+                            return i + 1
+        
+        return len(lines)
+
+    # ---------------- FALLBACK CHUNKING ----------------
+    def _fallback_chunking(self, content: str, file_path: str) -> List[Dict[str, Any]]:
+        chunks = []
+        lines = content.splitlines()
+        step = max(10, len(lines) // 2)  # chunk small files into at least 1-2 chunks
+        for i in range(0, len(lines), step):
+            section = "\n".join(lines[i:i+step]).strip()
+            if len(section) > 0:  # include even very small sections
+                chunks.append({
+                    "content": section,
+                    "file_path": file_path,
+                    "start_line": i + 1,
+                    "end_line": min(i + step, len(lines)),
+                    "type": "text_section",
+                    "language": "text",
+                    "is_semantic": False
+                })
         return chunks
