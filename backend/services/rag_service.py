@@ -33,11 +33,11 @@ class RAGService:
         if not self.openai_api_key or self.openai_api_key.startswith("sk-place"):
             raise ValueError("OPENAI_API_KEY is not set correctly")
         self.chroma_db_path = config.get("CHROMA_DB_PATH")
-        self.chunk_size = config.get("CHUNK_SIZE", 800)
+        self.chunk_size = config.get("CHUNK_SIZE", 1000)
         self.chunk_overlap = config.get("CHUNK_OVERLAP", 100)
         self.max_tokens = config.get("OPENAI_MAX_TOKENS", 1500)
         self.temperature = config.get("OPENAI_TEMPERATURE", 0.1)
-        self.model_name = config.get("OPENAI_MODEL", "gpt-4")
+        self.model_name = config.get("OPENAI_MODEL", "gpt-4o-mini")
 
         # OpenAI clients
         try:

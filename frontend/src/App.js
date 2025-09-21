@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Search, 
   Github, 
@@ -34,7 +34,10 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [isQuerying, setIsQuerying] = useState(false);
   const [loading, setLoading] = useState(false);        // tracks query in progress
-  const [responses, setResponses] = useState([]);   
+  const [responses, setResponses] = useState([]);
+  const messagesEndRef = useRef(null);
+  const textareaRef = useRef(null);
+  const [replacingMessage, setReplacingMessage] = useState(false);
 
   // ---- Poll for backend progress ----
   useEffect(() => {
@@ -51,6 +54,29 @@ function App() {
       return () => clearInterval(interval);
     }
   }, [sessionId, status?.status]);
+
+  // ---- Auto-scroll to bottom when new messages arrive ----
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [conversationHistory, isQuerying]);
+
+  // ---- Auto-resize textarea ----
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px';
+    }
+  }, [question]);
+
+  // ---- Handle keyboard shortcuts ----
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (question.trim() && !isQuerying) {
+        handleQuery(e);
+      }
+    }
+  };
 
   const handleIndexRepo = async (e) => {
     e.preventDefault();
@@ -92,34 +118,74 @@ function App() {
         return;
     }
 
+    const userMessage = question.trim();
+    setQuestion(""); // Clear input immediately
+
     try {
+        // Add user message immediately
+        setConversationHistory(prev => [...prev, {
+            role: 'user',
+            content: userMessage,
+            id: Date.now() // Add unique ID for smooth transitions
+        }]);
+
         setIsQuerying(true);
 
         const response = await axios.post(`${API_BASE_URL}/query`, {
             session_id: sessionId,
-            question: question.trim(),
+            question: userMessage,
             conversation_history: conversationHistory
         });
 
-        // Update conversation history
-        setConversationHistory(prev => [...prev, {
-            role: 'user',
-            content: question
-        }, {
-            role: 'assistant',
-            content: response.data.answer,
-            confidence: response.data.confidence || 'medium'
-        }]);
+        // Add assistant message with smooth transition
+        setTimeout(() => {
+            setReplacingMessage(true);
+            
+            setConversationHistory(prev => {
+                const newHistory = [...prev];
+                // Remove any existing "thinking" message and add the real response
+                const filteredHistory = newHistory.filter(msg => msg.role !== 'thinking');
+                return [...filteredHistory, {
+                    role: 'assistant',
+                    content: response.data.answer,
+                    confidence: response.data.confidence || 'medium',
+                    id: Date.now() + 1,
+                    isNew: true // Mark as new for animation
+                }];
+            });
 
-        // Update sources if available
-        if (response.data.sources) {
-            setSources(response.data.sources);
-        }
+            // Update sources if available
+            if (response.data.sources) {
+                setSources(response.data.sources);
+            }
+            
+            // Reset replacing state after animation
+            setTimeout(() => setReplacingMessage(false), 300);
+        }, 500); // Small delay for smooth transition
 
-        setQuestion(""); // Clear input
     } catch (err) {
         console.error("Error querying repository:", err);
-        alert("Query failed. Please try again.");
+        
+        // Add error message with smooth transition
+        setTimeout(() => {
+            setReplacingMessage(true);
+            
+            setConversationHistory(prev => {
+                const newHistory = [...prev];
+                const filteredHistory = newHistory.filter(msg => msg.role !== 'thinking');
+                return [...filteredHistory, {
+                    role: 'assistant',
+                    content: "Sorry, I encountered an error while processing your request. Please try again.",
+                    confidence: 'low',
+                    id: Date.now() + 1,
+                    isError: true,
+                    isNew: true
+                }];
+            });
+            
+            // Reset replacing state after animation
+            setTimeout(() => setReplacingMessage(false), 300);
+        }, 500);
     } finally {
         setIsQuerying(false);
     }
@@ -312,110 +378,140 @@ function App() {
           )}
         </div>
 
-        {/* Query Section */}
+        {/* ChatGPT-style Chat Interface */}
         {status?.status === 'ready' && (
-          <div className="bg-white/70 backdrop-blur-sm rounded-2xl shadow-xl border border-white/20 p-8 animate-fadeInUp">
-            <div className="flex justify-between items-center mb-8">
+          <div className="flex flex-col h-[calc(100vh-200px)] bg-white/70 backdrop-blur-sm rounded-2xl shadow-xl border border-white/20 animate-fadeInUp">
+            {/* Chat Header */}
+            <div className="flex justify-between items-center p-6 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-purple-50 rounded-t-2xl">
               <div className="flex items-center space-x-3">
                 <div className="p-2 bg-gradient-to-r from-green-500 to-blue-500 rounded-lg">
                   <MessageSquare className="w-5 h-5 text-white" />
                 </div>
-                <h2 className="text-2xl font-bold text-gray-900">Ask Questions</h2>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">AI Code Assistant</h2>
+                  <p className="text-sm text-gray-600">Ask questions about your codebase</p>
+                </div>
               </div>
-              {conversationHistory.length > 0 && (
-                <button
-                  onClick={clearConversation}
-                  className="px-4 py-2 text-sm text-red-600 hover:text-red-800 border border-red-300 rounded-lg hover:bg-red-50 transition-all duration-200 flex items-center space-x-2"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  <span>Clear Chat</span>
-                </button>
-              )}
-            </div>
-            
-            {/* Query Form */}
-            <form onSubmit={handleQuery} className="space-y-6">
-              <div>
-                <label htmlFor="question" className="block text-sm font-semibold text-gray-700 mb-3">
-                  Ask a question about the codebase
-                </label>
-                <div className="flex space-x-4">
-                  <div className="flex-1 relative">
-                    <input
-                      type="text"
-                      id="question"
-                      value={question}
-                      onChange={(e) => setQuestion(e.target.value)}
-                      placeholder="e.g., Where is authentication logic handled? How does the API work?"
-                      className="w-full px-4 py-3 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-lg"
-                      required
-                    />
-                    <Bot className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  </div>
+              <div className="flex items-center space-x-4">
+                {conversationHistory.length > 0 && (
                   <button
-                    type="submit"
-                    disabled={isQuerying}
-                    className="px-8 py-3 bg-gradient-to-r from-green-600 to-blue-600 text-white rounded-xl hover:from-green-700 hover:to-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 transition-all duration-200 shadow-lg hover:shadow-xl btn-hover"
+                    onClick={clearConversation}
+                    className="px-4 py-2 text-sm text-red-600 hover:text-red-800 border border-red-300 rounded-lg hover:bg-red-50 transition-all duration-200 flex items-center space-x-2"
                   >
-                    {isQuerying ? (
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                    ) : (
-                      <ArrowRight className="w-5 h-5" />
-                    )}
-                    <span className="font-semibold">{isQuerying ? 'Thinking...' : 'Ask'}</span>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Clear Chat</span>
                   </button>
+                )}
+                <div className="flex items-center space-x-2 text-sm text-gray-600">
+                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                  <span>Online</span>
                 </div>
               </div>
-            </form>
+            </div>
 
-            {/* Conversation History */}
-            {conversationHistory.length > 0 && (
-              <div className="mt-8">
-                <div className="flex items-center space-x-2 mb-6">
-                  <Clock className="w-5 h-5 text-gray-500" />
-                  <h3 className="text-lg font-semibold text-gray-900">Conversation</h3>
+            {/* Chat Messages Area */}
+            <div className="flex-1 overflow-y-auto chat-scroll p-6 space-y-6">
+              {conversationHistory.length === 0 ? (
+                /* Welcome Message */
+                <div className="flex flex-col items-center justify-center h-full text-center">
+                  <div className="w-20 h-20 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center mb-6">
+                    <Bot className="w-10 h-10 text-white" />
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-900 mb-4">Welcome to GitSleuth AI</h3>
+                  <p className="text-gray-600 mb-8 max-w-md">
+                    I'm your AI code assistant. Ask me anything about the codebase you've indexed. 
+                    I can help you understand functions, find files, explain architecture, and more!
+                  </p>
+                  
+                  {/* Quick Question Suggestions */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
+                    {[
+                      "How does authentication work?",
+                      "What are the main API endpoints?",
+                      "Where is the database configuration?",
+                      "How is error handling implemented?"
+                    ].map((suggestion, index) => (
+                      <button
+                        key={index}
+                        onClick={() => setQuestion(suggestion)}
+                        className="p-4 text-left bg-white border border-gray-200 rounded-xl hover:bg-blue-50 hover:border-blue-300 transition-all duration-200 text-gray-700 hover:text-blue-700 shadow-sm hover:shadow-md suggestion-card"
+                      >
+                        <div className="flex items-center space-x-3">
+                          <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-500 rounded-lg flex items-center justify-center">
+                            <MessageSquare className="w-4 h-4 text-white" />
+                          </div>
+                          <span className="font-medium">{suggestion}</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div className="space-y-6 max-h-96 overflow-y-auto pr-2">
+              ) : (
+                /* Chat Messages */
+                <>
                   {conversationHistory.map((message, index) => {
                     const isAssistant = message.role === 'assistant';
+                    const isUser = message.role === 'user';
+                    const isLastMessage = index === conversationHistory.length - 1;
+                    const isError = message.isError;
+                    const isNewMessage = message.isNew;
+                    
                     return (
                       <div
-                        key={index}
-                        className={`flex space-x-4 ${isAssistant ? 'justify-start' : 'justify-end'}`}
+                        key={message.id || index}
+                        className={`flex ${isAssistant ? 'justify-start' : 'justify-end'} ${
+                          isNewMessage ? 'message-bubble-entrance' : 'message-enter message-enter-active'
+                        } ${replacingMessage && isNewMessage ? 'message-replace-entering' : ''}`}
+                        style={{ 
+                          animationDelay: isNewMessage ? '0s' : `${index * 0.1}s`,
+                          transition: 'all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)'
+                        }}
                       >
-                        <div className={`flex space-x-3 max-w-3xl ${isAssistant ? 'flex-row' : 'flex-row-reverse'}`}>
+                        <div className={`flex space-x-3 max-w-[80%] ${isAssistant ? 'flex-row' : 'flex-row-reverse'}`}>
                           {/* Avatar */}
-                          <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
+                          <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-all duration-300 hover:scale-110 ${
                             isAssistant 
-                              ? 'bg-gradient-to-r from-blue-500 to-purple-500' 
-                              : 'bg-gradient-to-r from-gray-500 to-gray-600'
+                              ? isError 
+                                ? 'bg-gradient-to-r from-red-500 to-red-600'
+                                : 'bg-gradient-to-r from-blue-500 via-purple-500 to-indigo-500'
+                              : 'bg-gradient-to-r from-gray-600 to-gray-700'
                           }`}>
                             {isAssistant ? (
-                              <Bot className="w-4 h-4 text-white" />
+                              <Bot className="w-5 h-5 text-white" />
                             ) : (
-                              <User className="w-4 h-4 text-white" />
+                              <User className="w-5 h-5 text-white" />
                             )}
                           </div>
                           
-                          {/* Message */}
+                          {/* Message Bubble */}
                           <div className={`flex-1 ${isAssistant ? 'text-left' : 'text-right'}`}>
-                            <div className={`inline-block p-4 rounded-2xl ${
+                            <div className={`inline-block p-4 message-bubble transition-all duration-500 hover:shadow-xl ${
                               isAssistant 
-                                ? 'bg-white border border-gray-200 shadow-sm' 
-                                : 'bg-gradient-to-r from-blue-500 to-purple-500 text-white'
-                            }`}>
-                              <p className={`whitespace-pre-wrap ${
-                                isAssistant ? 'text-gray-800' : 'text-white'
+                                ? isError
+                                  ? 'assistant-message border-red-200 bg-red-50'
+                                  : 'assistant-message hover:border-blue-300'
+                                : 'user-message hover:from-blue-600 hover:to-purple-600'
+                            } ${isLastMessage ? 'ring-2 ring-blue-200' : ''}`}>
+                              <p className={`whitespace-pre-wrap leading-relaxed ${
+                                isAssistant 
+                                  ? isError 
+                                    ? 'text-red-800' 
+                                    : 'text-gray-800' 
+                                  : 'text-white'
                               }`}>
                                 {message.content}
                               </p>
                             </div>
                             
                             {/* Confidence Badge for Assistant */}
-                            {isAssistant && (
-                              <div className="mt-2 flex items-center space-x-2">
-                                <span className={`px-3 py-1 text-xs rounded-full font-medium ${getConfidenceColor(message.confidence)}`}>
+                            {isAssistant && !isError && (
+                              <div className="mt-3 flex items-center space-x-2">
+                                <span className={`px-3 py-1 text-xs rounded-full font-medium shadow-sm confidence-badge ${getConfidenceColor(message.confidence)}`}>
+                                  <Star className="w-3 h-3 inline mr-1" />
                                   {message.confidence || 'medium'} confidence
+                                </span>
+                                <span className="text-xs text-gray-500">
+                                  {new Date().toLocaleTimeString()}
                                 </span>
                               </div>
                             )}
@@ -424,59 +520,82 @@ function App() {
                       </div>
                     );
                   })}
-                </div>
-              </div>
-            )}
-
-            {/* Latest Answer - Only show if no conversation history */}
-            {latestAssistantMsg && conversationHistory.length === 0 && (
-              <div className="mt-8">
-                <div className="flex items-center space-x-3 mb-6">
-                  <div className="p-2 bg-gradient-to-r from-green-500 to-blue-500 rounded-lg">
-                    <Star className="w-5 h-5 text-white" />
-                  </div>
-                  <h3 className="text-lg font-semibold text-gray-900">Latest Answer</h3>
-                  <span className={`px-3 py-1 text-sm rounded-full font-medium ${getConfidenceColor(latestAssistantMsg.confidence)}`}>
-                    {latestAssistantMsg.confidence || 'medium'} confidence
-                  </span>
-                </div>
-                <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-6 border border-blue-200">
-                  <p className="text-gray-800 whitespace-pre-wrap text-lg leading-relaxed">{latestAssistantMsg.content}</p>
-                </div>
-
-                {/* Sources */}
-                {sources.length > 0 && (
-                  <div className="mt-6">
-                    <div className="flex items-center space-x-2 mb-4">
-                      <FileText className="w-5 h-5 text-gray-600" />
-                      <h4 className="text-lg font-semibold text-gray-900">Sources</h4>
-                    </div>
-                    <div className="grid gap-4 md:grid-cols-2">
-                      {sources.map((source, index) => (
-                        <div key={index} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow duration-200">
-                          <div className="flex items-start space-x-3">
-                            <div className="flex-shrink-0 w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-500 rounded-lg flex items-center justify-center">
-                              <Code className="w-4 h-4 text-white" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold text-blue-600 mb-2 truncate">
-                                {source.file}
-                                {source.line_number && (
-                                  <span className="text-gray-500 font-normal"> (line {source.line_number})</span>
-                                )}
-                              </p>
-                              <p className="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg font-mono text-xs leading-relaxed">
-                                {source.snippet}
-                              </p>
+                  
+                  {/* Typing Indicator */}
+                  {isQuerying && (
+                    <div className="flex justify-start animate-fadeInUp">
+                      <div className="flex space-x-3">
+                        <div className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center shadow-lg bg-gradient-to-r from-blue-500 via-purple-500 to-indigo-500 animate-pulse">
+                          <Bot className="w-5 h-5 text-white" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="inline-block p-4 rounded-2xl shadow-lg bg-white border border-gray-200 animate-pulse">
+                            <div className="typing-indicator">
+                              <div className="typing-dot"></div>
+                              <div className="typing-dot"></div>
+                              <div className="typing-dot"></div>
+                              <span className="ml-3 text-gray-600 text-sm">GitSleuth is thinking...</span>
                             </div>
                           </div>
                         </div>
-                      ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Scroll to bottom anchor */}
+                  <div ref={messagesEndRef} />
+                </>
+              )}
+            </div>
+
+            {/* Fixed Input Area at Bottom */}
+            <div className="p-6 border-t border-gray-200 bg-gradient-to-r from-blue-50 to-purple-50 rounded-b-2xl">
+              <form onSubmit={handleQuery} className="space-y-4">
+                <div className="relative bg-white rounded-2xl border border-gray-200 shadow-lg input-focus-ring transition-all duration-200">
+                  <div className="flex items-end space-x-3 p-4">
+                    <div className="flex-1">
+                      <textarea
+                        ref={textareaRef}
+                        value={question}
+                        onChange={(e) => setQuestion(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        placeholder="Ask me anything about the codebase... (Press Enter to send, Shift+Enter for new line)"
+                        className="w-full auto-resize-textarea border-0 outline-none text-lg placeholder-gray-400 bg-transparent"
+                        rows="1"
+                        required
+                      />
+                    </div>
+                    
+                    <button
+                      type="submit"
+                      disabled={isQuerying || !question.trim()}
+                      className="flex-shrink-0 p-3 bg-gradient-to-r from-green-600 via-blue-600 to-purple-600 text-white rounded-xl hover:from-green-700 hover:via-blue-700 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 shadow-lg hover:shadow-xl transform hover:scale-105 disabled:transform-none"
+                    >
+                      {isQuerying ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <ArrowRight className="w-5 h-5" />
+                      )}
+                    </button>
+                  </div>
+                  
+                  {/* Character count and suggestions */}
+                  <div className="px-4 pb-3 flex justify-between items-center text-sm text-gray-500">
+                    <div className="flex items-center space-x-4">
+                      {question.length > 0 && (
+                        <span className="bg-gray-100 px-2 py-1 rounded-full">
+                          {question.length} characters
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Sparkles className="w-4 h-4 text-blue-400" />
+                      <span>Powered by GPT-4</span>
                     </div>
                   </div>
-                )}
-              </div>
-            )}
+                </div>
+              </form>
+            </div>
           </div>
         )}
       </main>
