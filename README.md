@@ -52,23 +52,45 @@ An advanced full-stack web application that indexes public GitHub repositories a
 ```
 github_ragproject/
 ├── backend/
-│   ├── main.py                 # FastAPI application
-│   ├── config.py              # Configuration settings
+│   ├── main.py                 # FastAPI application entry point
+│   ├── config.py              # Configuration settings and environment
 │   ├── requirements.txt       # Python dependencies
+│   ├── env.example            # Environment variables template
 │   ├── models/
-│   │   └── schemas.py         # Pydantic models
-│   └── services/
-│       ├── repo_processor.py  # Repository cloning and processing
-│       └── rag_service.py     # RAG pipeline implementation
+│   │   ├── __init__.py        # Package initialization
+│   │   └── schemas.py         # Pydantic models and data structures
+│   ├── services/
+│   │   ├── __init__.py        # Package initialization
+│   │   ├── repo_processor.py  # Repository cloning and file processing
+│   │   ├── rag_service.py     # RAG pipeline implementation
+│   │   ├── conversation_manager.py # Conversation history management
+│   │   └── semantic_chunker.py # Tree-sitter based code chunking
+│   ├── utils/
+│   │   ├── cache.py           # Caching utilities
+│   │   ├── exceptions.py      # Custom exception classes
+│   │   ├── health.py          # Health check and monitoring
+│   │   ├── logger.py          # Logging configuration
+│   │   ├── rate_limiter.py    # Rate limiting implementation
+│   │   └── validators.py      # Input validation utilities
+│   ├── chroma_db/             # ChromaDB vector database storage
+│   ├── temp_repos/            # Temporary repository clones
+│   └── logs/                  # Application logs
 ├── frontend/
 │   ├── public/
+│   │   └── index.html         # HTML template
 │   ├── src/
 │   │   ├── App.js            # Main React component
 │   │   ├── index.js          # React entry point
-│   │   └── index.css         # Global styles
+│   │   └── index.css          # Global styles and animations
 │   ├── package.json          # Node.js dependencies
-│   └── tailwind.config.js    # Tailwind configuration
-└── README.md
+│   ├── package-lock.json     # Dependency lock file
+│   ├── tailwind.config.js    # Tailwind CSS configuration
+│   └── postcss.config.js     # PostCSS configuration
+├── install_dependencies.bat  # One-click dependency installation
+├── setup.bat                 # Project setup script
+├── start_backend.bat         # Backend startup script
+├── start_frontend.bat        # Frontend startup script
+└── README.md                 # Project documentation
 ```
 
 ## 🚀 Quick Start
