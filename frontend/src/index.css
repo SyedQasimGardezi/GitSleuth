@@ -51,27 +51,6 @@ code {
   }
 }
 
-@keyframes slideInLeft {
-  from {
-    opacity: 0;
-    transform: translateX(-30px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes slideInRight {
-  from {
-    opacity: 0;
-    transform: translateX(30px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
 
 @keyframes pulse {
   0%, 100% {
@@ -91,49 +70,10 @@ code {
   }
 }
 
-@keyframes typing {
-  from {
-    width: 0;
-  }
-  to {
-    width: 100%;
-  }
-}
 
-@keyframes blink {
-  0%, 50% {
-    opacity: 1;
-  }
-  51%, 100% {
-    opacity: 0;
-  }
-}
-
-@keyframes bounce {
-  0%, 20%, 53%, 80%, 100% {
-    transform: translate3d(0, 0, 0);
-  }
-  40%, 43% {
-    transform: translate3d(0, -8px, 0);
-  }
-  70% {
-    transform: translate3d(0, -4px, 0);
-  }
-  90% {
-    transform: translate3d(0, -2px, 0);
-  }
-}
 
 .animate-fadeInUp {
   animation: fadeInUp 0.6s ease-out;
-}
-
-.animate-slideInLeft {
-  animation: slideInLeft 0.5s ease-out;
-}
-
-.animate-slideInRight {
-  animation: slideInRight 0.5s ease-out;
 }
 
 .animate-pulse-slow {
@@ -144,18 +84,6 @@ code {
   background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
   background-size: 200px 100%;
   animation: shimmer 1.5s infinite;
-}
-
-.animate-typing {
-  animation: typing 2s steps(40, end);
-}
-
-.animate-blink {
-  animation: blink 1s infinite;
-}
-
-.animate-bounce-slow {
-  animation: bounce 2s infinite;
 }
 
 /* Glass morphism effect */
@@ -253,7 +181,7 @@ code {
 .user-message {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
-  border-radius: 20px 20px 5px 20px;
+  border-radius: 20px 5px 20px 20px;
 }
 
 .assistant-message {

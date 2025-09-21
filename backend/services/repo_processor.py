@@ -187,3 +187,27 @@ class RepoProcessor:
                 return await f.read()
         except Exception:
             return ""
+
+    def cleanup_temp_repos(self, max_age_hours: int = 24):
+        """Clean up temporary repository directories older than max_age_hours"""
+        import time
+        current_time = time.time()
+        max_age_seconds = max_age_hours * 3600
+        
+        cleaned_count = 0
+        for repo_dir in self.temp_dir.iterdir():
+            if repo_dir.is_dir():
+                # Check if directory is older than max_age_hours
+                dir_age = current_time - repo_dir.stat().st_mtime
+                if dir_age > max_age_seconds:
+                    try:
+                        shutil.rmtree(repo_dir)
+                        cleaned_count += 1
+                        print(f"Cleaned up old temp repo: {repo_dir.name}")
+                    except Exception as e:
+                        print(f"Failed to clean up {repo_dir.name}: {e}")
+        
+        if cleaned_count > 0:
+            print(f"Cleaned up {cleaned_count} old temporary repositories")
+        
+        return cleaned_count

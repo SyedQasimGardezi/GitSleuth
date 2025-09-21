@@ -65,6 +65,9 @@ repo_processor = RepoProcessor()
 rag_service = RAGService()
 conversation_manager = ConversationManager()
 
+# Clean up old temporary repositories on startup
+repo_processor.cleanup_temp_repos(max_age_hours=24)
+
 # Function to restore sessions from ChromaDB collections
 def restore_sessions_from_chromadb():
     """Restore sessions from existing ChromaDB collections on startup"""

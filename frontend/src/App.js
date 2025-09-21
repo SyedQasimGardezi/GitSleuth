@@ -33,8 +33,6 @@ function App() {
   const [conversationHistory, setConversationHistory] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isQuerying, setIsQuerying] = useState(false);
-  const [loading, setLoading] = useState(false);        // tracks query in progress
-  const [responses, setResponses] = useState([]);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
   const [replacingMessage, setReplacingMessage] = useState(false);
@@ -131,10 +129,18 @@ function App() {
 
         setIsQuerying(true);
 
+        // Filter conversation history to only include required fields for backend
+        const filteredHistory = conversationHistory
+            .filter(msg => msg.role !== 'thinking') // Remove thinking messages
+            .map(msg => ({
+                role: msg.role,
+                content: msg.content
+            }));
+
         const response = await axios.post(`${API_BASE_URL}/query`, {
             session_id: sessionId,
             question: userMessage,
-            conversation_history: conversationHistory
+            conversation_history: filteredHistory
         });
 
         // Add assistant message with smooth transition
@@ -467,7 +473,7 @@ function App() {
                           transition: 'all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)'
                         }}
                       >
-                        <div className={`flex space-x-3 max-w-[80%] ${isAssistant ? 'flex-row' : 'flex-row-reverse'}`}>
+                        <div className={`flex items-start max-w-[80%] ${isAssistant ? 'flex-row space-x-3' : 'flex-row-reverse'}`}>
                           {/* Avatar */}
                           <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-all duration-300 hover:scale-110 ${
                             isAssistant 
@@ -484,7 +490,7 @@ function App() {
                           </div>
                           
                           {/* Message Bubble */}
-                          <div className={`flex-1 ${isAssistant ? 'text-left' : 'text-right'}`}>
+                          <div className={`flex-1 ${isAssistant ? 'text-left' : 'text-right mr-3'}`}>
                             <div className={`inline-block p-4 message-bubble transition-all duration-500 hover:shadow-xl ${
                               isAssistant 
                                 ? isError
