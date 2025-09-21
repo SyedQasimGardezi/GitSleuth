@@ -85,7 +85,8 @@ class RAGService:
         3. Focus on code structure and functionality.
         4. Provide clear, actionable insights.
         5. If the context doesn't contain enough information, say so clearly.
-        6. Do not include confidence ratings in your response - the system will handle that."""),
+        6. NEVER include confidence ratings, [CONFIDENCE: X], or any confidence indicators in your response.
+        7. Do not add any metadata or formatting beyond the actual answer content."""),
 
             ("human", "Context:\n{context}\n\nConversation:\n{conversation_context}\n\nQuestion: {question}")
         ])
@@ -309,12 +310,41 @@ class RAGService:
 
         response = await self.llm.ainvoke(prompt)
         answer = response.content.strip()
+        
+        # Debug: Log original answer
+        self.logger.debug(f"Original LLM answer: {answer}")
+        
+        # Remove any confidence indicators that might have slipped through
+        import re
+        original_answer = answer
+        # Remove various confidence patterns
+        answer = re.sub(r'\[CONFIDENCE:\s*\w+\]', '', answer, flags=re.IGNORECASE)
+        answer = re.sub(r'CONFIDENCE:\s*\w+', '', answer, flags=re.IGNORECASE)
+        answer = re.sub(r'\[CONFIDENCE\s*:\s*\w+\]', '', answer, flags=re.IGNORECASE)
+        answer = re.sub(r'CONFIDENCE\s*:\s*\w+', '', answer, flags=re.IGNORECASE)
+        # Remove any remaining confidence text patterns
+        answer = re.sub(r'\[.*?CONFIDENCE.*?\]', '', answer, flags=re.IGNORECASE)
+        answer = re.sub(r'CONFIDENCE.*', '', answer, flags=re.IGNORECASE)
+        
+        # Remove markdown formatting for better display in chat
+        answer = re.sub(r'\*\*(.*?)\*\*', r'\1', answer)  # Remove bold **text**
+        answer = re.sub(r'\*(.*?)\*', r'\1', answer)       # Remove italic *text*
+        answer = re.sub(r'`(.*?)`', r'\1', answer)       # Remove code `text`
+        answer = re.sub(r'#{1,6}\s*', '', answer)        # Remove headers # ## ###
+        answer = re.sub(r'^\s*[-*+]\s*', '• ', answer, flags=re.MULTILINE)  # Convert list items to bullets
+        answer = re.sub(r'^\s*\d+\.\s*', '', answer, flags=re.MULTILINE)     # Remove numbered list formatting
+        
+        answer = answer.strip()
+        
+        # Debug: Log if confidence text was removed
+        if original_answer != answer:
+            self.logger.debug(f"Confidence text removed. Original: {original_answer}, Cleaned: {answer}")
+        
         confidence = compute_confidence(answer, sources)
-        answer_with_confidence = f"{answer}\n\n[CONFIDENCE: {confidence}]"
 
-        self.conversation_manager.add_message(conversation_id, "assistant", answer_with_confidence, confidence=confidence)
+        self.conversation_manager.add_message(conversation_id, "assistant", answer, confidence=confidence)
 
-        return {"answer": answer_with_confidence, "sources": sources, "confidence": confidence, "conversation_id": conversation_id}
+        return {"answer": answer, "sources": sources, "confidence": confidence, "conversation_id": conversation_id}
 
     # ---------------- SYNCHRONOUS CHUNK EXTRACTION ----------------
     def get_indexable_chunks(self, repo_path: str) -> List[Dict[str, Any]]:
