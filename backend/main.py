@@ -65,6 +65,79 @@ repo_processor = RepoProcessor()
 rag_service = RAGService()
 conversation_manager = ConversationManager()
 
+# Function to restore sessions from ChromaDB collections
+def restore_sessions_from_chromadb():
+    """Restore sessions from existing ChromaDB collections on startup"""
+    try:
+        import chromadb
+        from pathlib import Path
+        
+        chroma_db_path = Path('./chroma_db')
+        if not chroma_db_path.exists():
+            logger.info("ChromaDB directory does not exist, no sessions to restore")
+            return
+            
+        client = chromadb.PersistentClient(path=str(chroma_db_path))
+        collections = client.list_collections()
+        
+        logger.info(f"Found {len(collections)} ChromaDB collections")
+        
+        restored_count = 0
+        for collection in collections:
+            # Extract session ID from collection name (format: repo_{session_id})
+            if collection.name.startswith('repo_'):
+                session_id = collection.name[5:]  # Remove 'repo_' prefix
+                
+                # Check if session already exists
+                if session_id not in sessions:
+                    try:
+                        # Get collection metadata to determine if it's ready
+                        docs = collection.get(limit=1)
+                        if docs['documents']:
+                            # Collection has documents, mark as ready
+                            sessions[session_id] = {
+                                "status": "ready",
+                                "repo_url": "https://github.com/SyedQasimGardezi/GitSleuth",  # Default for now
+                                "message": "Repository ready for querying!",
+                                "progress": 100,
+                                "created_at": time.time() - 3600,  # Assume created 1 hour ago
+                                "restored": True
+                            }
+                            restored_count += 1
+                            logger.info(f"Restored session {session_id} from ChromaDB collection {collection.name}")
+                        else:
+                            logger.info(f"Collection {collection.name} has no documents, skipping")
+                    except Exception as e:
+                        logger.warning(f"Failed to restore session {session_id}: {e}")
+                else:
+                    logger.info(f"Session {session_id} already exists, skipping")
+        
+        logger.info(f"Restored {restored_count} sessions from ChromaDB collections")
+        logger.info(f"Total sessions in memory: {len(sessions)}")
+        
+    except Exception as e:
+        logger.error(f"Failed to restore sessions from ChromaDB: {e}")
+
+# Restore sessions on startup
+restore_sessions_from_chromadb()
+
+# Confidence computation function
+def compute_confidence(answer: str, sources: list) -> str:
+    """Compute confidence level based on answer quality and source relevance"""
+    if not answer or len(answer.strip()) < 10:
+        return "low"
+    
+    if not sources or len(sources) == 0:
+        return "low"
+    
+    # Check for indicators of high confidence
+    if len(sources) >= 3 and len(answer) > 100:
+        return "high"
+    elif len(sources) >= 2 and len(answer) > 50:
+        return "medium"
+    else:
+        return "low"
+
 # Security
 security = HTTPBearer(auto_error=False)
 
@@ -209,8 +282,38 @@ async def query_repository(request: QueryRequest):
         validated_question = TextValidator.validate_question(request.question)
         validated_history = TextValidator.validate_conversation_history(request.conversation_history)
 
+        # Check if session exists in memory, if not try to restore from ChromaDB
         if validated_session_id not in sessions:
-            raise HTTPException(status_code=404, detail="Session not found")
+            # Try to restore session from ChromaDB
+            try:
+                import chromadb
+                from pathlib import Path
+                
+                chroma_db_path = Path('./chroma_db')
+                if chroma_db_path.exists():
+                    client = chromadb.PersistentClient(path=str(chroma_db_path))
+                    collection_name = f"repo_{validated_session_id}"
+                    
+                    try:
+                        collection = client.get_collection(collection_name)
+                        # If collection exists, restore the session
+                        sessions[validated_session_id] = {
+                            "status": "ready",
+                            "repo_url": "restored_from_chromadb",
+                            "message": "Session restored from ChromaDB",
+                            "progress": 100,
+                            "created_at": time.time()
+                        }
+                        logger.info(f"Restored session {validated_session_id} from ChromaDB collection {collection_name}")
+                    except Exception:
+                        # Collection doesn't exist, session is invalid
+                        raise HTTPException(status_code=404, detail="Session not found")
+                else:
+                    raise HTTPException(status_code=404, detail="Session not found")
+            except Exception as e:
+                logger.error(f"Failed to restore session {validated_session_id}: {e}")
+                raise HTTPException(status_code=404, detail="Session not found")
+        
         session = sessions[validated_session_id]
         if session["status"] != "ready":
             raise HTTPException(status_code=400, detail="Repository not ready for querying")
@@ -222,19 +325,20 @@ async def query_repository(request: QueryRequest):
                 logger.info(f"Returning cached result for query in session {validated_session_id}")
                 return QueryResponse(**cached_result)
 
-        result = await rag_service.query(
-            question=validated_question,
-            session_id=validated_session_id,
-            conversation_history=validated_history
-        )
+            result = await rag_service.query(
+                question=validated_question,
+                session_id=validated_session_id,
+                conversation_history=validated_history
+            )
 
-        if config.get('CACHE_ENABLED', True):
-            cache_manager.set(cache_key, result, ttl=config.get('CACHE_TTL', 3600))
+            if config.get('CACHE_ENABLED', True):
+                cache_manager.set(cache_key, result, ttl=config.get('CACHE_TTL', 3600))
 
-        metrics_collector.increment_counter('queries_total')
-        metrics_collector.increment_counter('queries_successful')
-        logger.info(f"Query processed successfully for session {validated_session_id}")
-        return QueryResponse(**result)
+            metrics_collector.increment_counter('queries_total')
+            metrics_collector.increment_counter('queries_successful')
+            logger.info(f"Query processed successfully for session {validated_session_id}")
+            return QueryResponse(**result)
+
 
     except ValidationError as e:
         raise e
@@ -388,6 +492,46 @@ async def get_stats():
     except Exception as e:
         logger.error(f"Failed to get stats: {e}")
         raise GitSleuthException(f"Failed to get stats: {str(e)}")
+
+@app.get("/sessions")
+async def get_sessions():
+    """Get all available sessions"""
+    try:
+        import chromadb
+        from pathlib import Path
+        
+        available_sessions = []
+        
+        # Add sessions from memory
+        for session_id, session_data in sessions.items():
+            available_sessions.append({
+                "session_id": session_id,
+                "status": session_data["status"],
+                "repo_url": session_data.get("repo_url", "unknown"),
+                "created_at": session_data.get("created_at", 0)
+            })
+        
+        # Add sessions from ChromaDB that aren't in memory
+        chroma_db_path = Path('./chroma_db')
+        if chroma_db_path.exists():
+            client = chromadb.PersistentClient(path=str(chroma_db_path))
+            collections = client.list_collections()
+            
+            for collection in collections:
+                if collection.name.startswith('repo_'):
+                    session_id = collection.name[5:]  # Remove 'repo_' prefix
+                    if session_id not in sessions:
+                        available_sessions.append({
+                            "session_id": session_id,
+                            "status": "ready",
+                            "repo_url": "restored_from_chromadb",
+                            "created_at": 0
+                        })
+        
+        return {"sessions": available_sessions}
+    except Exception as e:
+        logger.error(f"Failed to get sessions: {e}")
+        return {"sessions": []}
 
 # ---- Run app ----
 if __name__ == "__main__":

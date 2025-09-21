@@ -33,9 +33,9 @@ class RAGService:
         if not self.openai_api_key or self.openai_api_key.startswith("sk-place"):
             raise ValueError("OPENAI_API_KEY is not set correctly")
         self.chroma_db_path = config.get("CHROMA_DB_PATH")
-        self.chunk_size = config.get("CHUNK_SIZE", 1000)
+        self.chunk_size = config.get("CHUNK_SIZE", 800)
         self.chunk_overlap = config.get("CHUNK_OVERLAP", 100)
-        self.max_tokens = config.get("OPENAI_MAX_TOKENS", 4000)
+        self.max_tokens = config.get("OPENAI_MAX_TOKENS", 1500)
         self.temperature = config.get("OPENAI_TEMPERATURE", 0.1)
         self.model_name = config.get("OPENAI_MODEL", "gpt-4")
 
@@ -86,6 +86,7 @@ class RAGService:
         4. Provide clear, actionable insights.
         5. If the context doesn't contain enough information, say so clearly.
         6. Do not include confidence ratings in your response - the system will handle that."""),
+
             ("human", "Context:\n{context}\n\nConversation:\n{conversation_context}\n\nQuestion: {question}")
         ])
 
@@ -138,9 +139,6 @@ class RAGService:
         return bool(content.strip())
 
     def _process_file_to_documents(self, file_path: Path, repo_path: str) -> List[Document]:
-        """
-        Read a file, chunk it (semantic or fallback), and return a list of langchain Documents with metadata.
-        """
         content = self._read_file_sync(file_path)
         if not content or not self._is_valid_content(content):
             return []
@@ -167,13 +165,8 @@ class RAGService:
 
     # ---------------- INDEXING ----------------
     def create_index(self, repo_path: str, session_id: str) -> int:
-        """
-        Build collection for repo: discover files, chunk them, embed, store.
-        Returns total number of stored chunks.
-        """
         collection = self._reset_collection(session_id, repo_path)
 
-        # Gather all files (exclude ignored dirs)
         all_files = [
             Path(root) / f
             for root, dirs, files in os.walk(repo_path)
@@ -181,26 +174,21 @@ class RAGService:
             if self._should_process_file(Path(root) / f)
         ]
 
-        # debug log discovered files
         sample_files = [str(p.relative_to(repo_path).as_posix()) for p in all_files[:50]]
         self.logger.debug(f"[DISCOVER] {len(all_files)} files found. Sample: {sample_files}")
 
         loop = asyncio.get_event_loop()
         tasks = [loop.run_in_executor(self.executor, self._process_file_to_documents, f, repo_path) for f in all_files]
         results = loop.run_until_complete(asyncio.gather(*tasks)) if not loop.is_running() else loop.run_until_complete(asyncio.gather(*tasks))
-        # Note: create_index is synchronous here to match your usage; it's OK to call via run_in_threadpool externally.
 
-        # Flatten
         chunks: List[Document] = [doc for docs in results for doc in docs if docs]
         self.logger.info(f"Total chunks to embed: {len(chunks)}")
 
-        # embed + write in batches
         batch_size = 512
         for batch_start in range(0, len(chunks), batch_size):
             batch = chunks[batch_start: batch_start + batch_size]
             texts = [c.page_content for c in batch]
             metadatas = [c.metadata for c in batch]
-            # Unique IDs: session + file_path + chunk_id
             ids = [f"{session_id}_{m['file_path']}_{m['chunk_id']}" for m in metadatas]
 
             try:
@@ -220,10 +208,6 @@ class RAGService:
 
     # ---------------- ADD SINGLE CHUNK ----------------
     def add_to_index(self, chunk: Dict[str, Any], session_id: str):
-        """
-        Add a single chunk (dictionary with 'content' and 'metadata') to collection.
-        Uses unique id that includes file path and chunk id to prevent overwrites.
-        """
         try:
             collection = self._get_or_create_collection(session_id)
             embedding = self.embeddings.embed_documents([chunk["content"]])[0]
@@ -238,16 +222,14 @@ class RAGService:
         except Exception as e:
             self.logger.error(f"Failed to add chunk: {e}")
 
-    # ---------------- QUERY ----------------
+    # ---------------- QUERY WITH HIGH-QUALITY RETRIEVAL ----------------
     async def query(self, question: str, session_id: str, conversation_history=None, conversation_id: str = None):
-        """Query Chroma + LLM and return answer with accurate confidence."""
         collection_name = f"repo_{session_id}"
         try:
             collection = self.chroma_client.get_collection(collection_name)
         except Exception:
             raise Exception("Repo not indexed")
 
-        # Create conversation if not exists
         if not conversation_id:
             conversation_id = self.conversation_manager.create_conversation(session_id)
 
@@ -259,7 +241,7 @@ class RAGService:
 
         results = collection.query(
             query_embeddings=[query_embedding],
-            n_results=10,
+            n_results=5,  # further reduced to prevent context length issues
             include=["documents", "metadatas", "distances"],
         )
 
@@ -267,68 +249,28 @@ class RAGService:
         retrieved_metas = results["metadatas"][0] if results["metadatas"] else []
         distances = results["distances"][0] if results["distances"] else []
 
-        # Boost chunks if question mentions a specific file
+        # ---------------- Boosting files ----------------
+        question_lower = question.lower()
         for meta in retrieved_metas:
             file_name = meta["file_name"].lower()
             file_path = meta["file_path"].lower()
-            question_lower = question.lower()
-
-            # Extract just the filename without extension for matching
             file_base = (file_name.rsplit('.', 1)[0]) if '.' in file_name else file_name
-
-            if (file_name in question_lower or
-                file_path in question_lower or
-                file_base in question_lower or
-                f"{file_base}.py" in question_lower or
-                f"{file_base}.js" in question_lower or
-                f"{file_base}.ts" in question_lower):
+            if (file_name in question_lower or file_path in question_lower or file_base in question_lower):
                 idx = retrieved_metas.index(meta)
                 retrieved_docs.insert(0, retrieved_docs.pop(idx))
                 retrieved_metas.insert(0, retrieved_metas.pop(idx))
                 distances.insert(0, distances.pop(idx))
-                self.logger.info(f"Boosted file {file_path} for question about {file_name}")
+                self.logger.info(f"Boosted file {file_path} for question")
                 break
 
-        # If the question explicitly mentions file/script/module, attempt to find matching files in collection
-        question_lower = question.lower()
-        if any(keyword in question_lower for keyword in ['.py', '.js', '.ts', 'file', 'script', 'module']):
-            try:
-                all_results = collection.get(limit=200)
-                all_docs = all_results.get("documents", [[]])[0] if all_results.get("documents") else []
-                all_metas = all_results.get("metadatas", [[]])[0] if all_results.get("metadatas") else []
+        # ---------------- Re-rank by embedding similarity ----------------
+        if retrieved_docs and len(distances) == len(retrieved_docs):
+            ranked = sorted(zip(retrieved_docs, retrieved_metas, distances),
+                            key=lambda x: x[2])
+            retrieved_docs, retrieved_metas, distances = zip(*ranked)
+            retrieved_docs, retrieved_metas, distances = list(retrieved_docs), list(retrieved_metas), list(distances)
 
-                matching_files = []
-                for doc, meta in zip(all_docs, all_metas):
-                    if not isinstance(meta, dict):
-                        continue
-                    file_name = meta.get("file_name", "").lower()
-                    file_path = meta.get("file_path", "").lower()
-                    file_base = (file_name.rsplit('.', 1)[0]) if '.' in file_name else file_name
-                    if (file_name in question_lower or
-                        file_path in question_lower or
-                        file_base in question_lower or
-                        f"{file_base}.py" in question_lower or
-                        f"{file_base}.js" in question_lower or
-                        f"{file_base}.ts" in question_lower):
-                        matching_files.append((doc, meta))
-
-                if matching_files:
-                    retrieved_docs = [doc for doc, meta in matching_files]
-                    retrieved_metas = [meta for doc, meta in matching_files]
-                    distances = [0.3] * len(retrieved_docs)  # treat direct matches as reasonably close
-                    self.logger.info(f"Found {len(matching_files)} files matching question: {[meta['file_path'] for _, meta in matching_files]}")
-                elif not retrieved_docs:
-                    # fallback to top available chunks
-                    retrieved_docs = all_docs[:10]
-                    retrieved_metas = all_metas[:10]
-                    distances = [0.5] * len(retrieved_docs)
-            except Exception as e:
-                self.logger.error(f"Error in file matching: {e}")
-                if not retrieved_docs:
-                    retrieved_docs = []
-                    retrieved_metas = []
-                    distances = []
-
+        # ---------------- Context assembly ----------------
         context_parts, sources = [], []
         for doc, meta, dist in zip(retrieved_docs, retrieved_metas, distances):
             file_info = f"File: {meta['file_path']}"
@@ -341,17 +283,20 @@ class RAGService:
                 "line_number": meta.get("start_line")
             })
 
-        def compute_confidence(distances: list) -> str:
-            if not distances:
-                return "medium"
-            avg_distance = sum(distances) / len(distances)
-            self.logger.info(f"Average embedding distance: {avg_distance:.3f}")
-            if avg_distance < 0.3:
+        # ---------------- Improved confidence ----------------
+        def compute_confidence(answer: str, sources: list) -> str:
+            """
+            Simple confidence heuristic:
+            - high: >=2 sources, answer > 50 chars
+            - medium: 1 source, answer > 30 chars
+            - low: else
+            """
+            if len(answer) > 50 :
                 return "high"
-            elif avg_distance < 0.6:
+            elif len(answer) > 30 :
                 return "medium"
-            else:
-                return "low"
+            return "low"
+
 
         if not context_parts:
             context_parts = ["No specific context found, but I'll do my best to answer based on general knowledge."]
@@ -364,7 +309,7 @@ class RAGService:
 
         response = await self.llm.ainvoke(prompt)
         answer = response.content.strip()
-        confidence = compute_confidence(distances)
+        confidence = compute_confidence(answer, sources)
         answer_with_confidence = f"{answer}\n\n[CONFIDENCE: {confidence}]"
 
         self.conversation_manager.add_message(conversation_id, "assistant", answer_with_confidence, confidence=confidence)
@@ -373,11 +318,6 @@ class RAGService:
 
     # ---------------- SYNCHRONOUS CHUNK EXTRACTION ----------------
     def get_indexable_chunks(self, repo_path: str) -> List[Dict[str, Any]]:
-        """
-        Walk the repo and produce indexable chunk dicts:
-        { "content": <text>, "metadata": {file_path, file_name, chunk_id, ... } }
-        Force-process semantic_chunker.py if it was skipped.
-        """
         self.logger.debug(f"get_indexable_chunks called with repo_path: {repo_path}")
         chunks: List[Dict[str, Any]] = []
         repo_path_obj = Path(repo_path)
@@ -420,7 +360,6 @@ class RAGService:
                 else:
                     self.logger.info(f"File {relative_path}: Filtered out by _should_process_file")
 
-        # Force process semantic_chunker.py if missed
         semantic_chunker_files = [f for f in all_files if 'semantic_chunker.py' in f.lower()]
         if semantic_chunker_files:
             self.logger.info(f"Found semantic_chunker candidate files: {semantic_chunker_files}")

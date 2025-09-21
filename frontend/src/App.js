@@ -33,6 +33,8 @@ function App() {
   const [conversationHistory, setConversationHistory] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isQuerying, setIsQuerying] = useState(false);
+  const [loading, setLoading] = useState(false);        // tracks query in progress
+  const [responses, setResponses] = useState([]);   
 
   // ---- Poll for backend progress ----
   useEffect(() => {
@@ -77,39 +79,54 @@ function App() {
     }
   };
 
-  const handleQuery = async (e) => {
-    e.preventDefault();
-    if (!question.trim() || !sessionId) return;
+  async function handleQuery(e) {
+    e.preventDefault(); // Prevent form submission reload
 
-    setIsQuerying(true);
-    try {
-      const response = await axios.post(`${API_BASE_URL}/query`, {
-        session_id: sessionId,
-        question: question.trim(),
-        conversation_history: conversationHistory
-      });
-
-      setSources(response.data.sources || []);
-      setConversationId(response.data.conversation_id);
-
-      const newHistory = [
-        ...conversationHistory,
-        { role: 'user', content: question.trim(), confidence: '' },
-        {
-          role: 'assistant',
-          content: response.data.answer,
-          confidence: response.data.confidence // use backend confidence
-        }
-      ];
-      setConversationHistory(newHistory);
-      setQuestion('');
-    } catch (error) {
-      console.error('Error querying repository:', error);
-      alert('Error querying repository. Please try again.');
-    } finally {
-      setIsQuerying(false);
+    if (!question || question.trim() === "") {
+        console.warn("Cannot send empty question");
+        return;
     }
-  };
+
+    if (!status || status.status !== "ready") {
+        console.warn(`Repo not ready. Current status: ${status?.status}`);
+        return;
+    }
+
+    try {
+        setIsQuerying(true);
+
+        const response = await axios.post(`${API_BASE_URL}/query`, {
+            session_id: sessionId,
+            question: question.trim(),
+            conversation_history: conversationHistory
+        });
+
+        // Update conversation history
+        setConversationHistory(prev => [...prev, {
+            role: 'user',
+            content: question
+        }, {
+            role: 'assistant',
+            content: response.data.answer,
+            confidence: response.data.confidence || 'medium'
+        }]);
+
+        // Update sources if available
+        if (response.data.sources) {
+            setSources(response.data.sources);
+        }
+
+        setQuestion(""); // Clear input
+    } catch (err) {
+        console.error("Error querying repository:", err);
+        alert("Query failed. Please try again.");
+    } finally {
+        setIsQuerying(false);
+    }
+}
+
+
+  
 
   // ---- UI helpers ----
   const getStatusIcon = () => {
